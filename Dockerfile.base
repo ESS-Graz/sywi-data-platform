@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+
+# 1. Install System Deps & R
+RUN apt-get update && apt-get install -y --no-install-recommends     r-base     build-essential     git     && rm -rf /var/lib/apt/lists/*
+
+# 2. Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# 3. Configure Dagster Env
+ENV DAGSTER_HOME=/opt/dagster/dagster_home
+ENV PYTHONPATH=/opt/dagster/app
+WORKDIR /opt/dagster/app

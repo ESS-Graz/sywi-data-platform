@@ -1,0 +1,11 @@
+[project]
+name = "my-pipeline"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "dagster",
+    "dagster-postgres",
+]
+
+[tool.uv]
+dev-dependencies = []
