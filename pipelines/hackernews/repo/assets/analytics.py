@@ -142,9 +142,9 @@ def story_analytics(
     # Convert tech_tags list to comma-separated string for storage
     df["tech_tags_str"] = df["tech_tags"].apply(lambda tags: ", ".join(tags))
 
-    # Compute aggregate stats
-    avg_word_count = df["word_count"].mean()
-    avg_clickbait = df["clickbait_score"].mean()
+    # Compute aggregate stats (convert to native Python types for serialization)
+    avg_word_count = float(df["word_count"].mean())
+    avg_clickbait = float(df["clickbait_score"].mean())
     all_tags = [tag for tags in df["tech_tags"] for tag in tags]
     top_tags = Counter(all_tags).most_common(5)
 
@@ -175,7 +175,7 @@ def story_analytics(
                 + "\n".join(
                     [
                         f"- **{row['title'][:50]}{'...' if len(row['title']) > 50 else ''}**\n"
-                        f"  - Words: {row['word_count']}, Clickbait: {row['clickbait_score']:.2f}, Tags: {row['tech_tags_str'] or 'none'}"
+                        f"  - Words: {int(row['word_count'])}, Clickbait: {float(row['clickbait_score']):.2f}, Tags: {row['tech_tags_str'] or 'none'}"
                         for _, row in df.head(3).iterrows()
                     ]
                 )
