@@ -12,5 +12,5 @@ RUN uv sync --frozen || uv sync
 # Copy the rest of the project
 COPY hackernews/repo/ ./repo/
 
-# Run the Dagster gRPC server
-CMD ["uv", "run", "dagster", "api", "grpc", "-h", "0.0.0.0", "-p", "4000", "-f", "repo/defs.py"]
+# Run the Dagster gRPC server with correct working directory
+CMD ["uv", "run", "dagster", "api", "grpc", "-h", "0.0.0.0", "-p", "4000", "-f", "repo/defs.py", "-d", "repo"]
