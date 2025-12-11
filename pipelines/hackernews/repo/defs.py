@@ -12,6 +12,7 @@ from _shared.ducklake_resource import DuckLakeResource
 from assets.ingestion import hackernews_top_stories, hackernews_titles
 from assets.storage import hackernews_stories
 from assets.export_csv import save_to_csv
+from assets.analytics import story_analytics
 
 defs = Definitions(
     assets=[
@@ -19,6 +20,7 @@ defs = Definitions(
         hackernews_titles,
         hackernews_stories,
         save_to_csv,
+        story_analytics,
     ],
     resources={
         "io_manager": ducklake_io_manager.configured(
