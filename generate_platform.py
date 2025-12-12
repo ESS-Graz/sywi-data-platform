@@ -1,49 +1,126 @@
 #!/usr/bin/env python3
+"""Generate Docker Compose and workspace configs for all pipelines.
+
+This script scans the pipelines/ directory and generates:
+- docker-compose.override.generated.yaml (production)
+- docker-compose.dev.generated.yaml (development with volume mounts)
+- workspace.generated.yaml (Dagster workspace config)
+"""
+
 import os
 import yaml
 
 PIPELINE_DIR = "./pipelines"
-COMPOSE_FILE = "docker-compose.override.generated.yaml"
+COMPOSE_PROD_FILE = "docker-compose.override.generated.yaml"
+COMPOSE_DEV_FILE = "docker-compose.dev.generated.yaml"
 WORKSPACE_FILE = "workspace.generated.yaml"
 
-compose_services = {"services": {}}
+# Production compose - just pipeline services
+compose_prod = {"services": {}}
+
+# Dev compose - full stack with volume mounts
+compose_dev = {
+    "services": {
+        "postgresql": {
+            "image": "postgres:16",
+            "environment": {
+                "POSTGRES_USER": "dagster_user",
+                "POSTGRES_PASSWORD": "dagster_password",
+                "POSTGRES_DB": "dagster_db",
+            },
+            "volumes": ["dagster_pgdata_dev:/var/lib/postgresql/data"],
+            "networks": ["dagster_network"],
+            "ports": ["5432:5432"],
+        },
+        "dagster_daemon": {
+            "image": "my-platform-base:latest",
+            "command": "dagster-daemon run",
+            "environment": {"DAGSTER_HOME": "/opt/dagster/dagster_home"},
+            "env_file": ".env.local",
+            "volumes": [
+                "./workspace.generated.yaml:/opt/dagster/app/workspace.yaml",
+                "./dagster.yaml:/opt/dagster/dagster_home/dagster.yaml",
+                "./data:/opt/dagster/app/data",
+            ],
+            "depends_on": ["postgresql"],
+            "networks": ["dagster_network"],
+        },
+        "dagster_webserver": {
+            "image": "my-platform-base:latest",
+            "command": "dagster-webserver -h 0.0.0.0 -p 3000 -w workspace.yaml",
+            "environment": {"DAGSTER_HOME": "/opt/dagster/dagster_home"},
+            "env_file": ".env.local",
+            "volumes": [
+                "./workspace.generated.yaml:/opt/dagster/app/workspace.yaml",
+                "./dagster.yaml:/opt/dagster/dagster_home/dagster.yaml",
+                "./data:/opt/dagster/app/data",
+            ],
+            "ports": ["3000:3000"],
+            "depends_on": ["postgresql", "dagster_daemon"],
+            "networks": ["dagster_network"],
+        },
+    },
+    "networks": {"dagster_network": {"driver": "bridge"}},
+    "volumes": {"dagster_pgdata_dev": None},
+}
+
 workspace_entries = {"load_from": []}
 
 if not os.path.exists(PIPELINE_DIR):
     os.makedirs(PIPELINE_DIR)
 
-# Get all projects, excluding _template
-projects = [d for d in os.listdir(PIPELINE_DIR) 
-            if os.path.isdir(os.path.join(PIPELINE_DIR, d)) and not d.startswith("_")]
+# Get all projects, excluding _template, _shared, __pycache__
+projects = [
+    d
+    for d in os.listdir(PIPELINE_DIR)
+    if os.path.isdir(os.path.join(PIPELINE_DIR, d)) and not d.startswith("_")
+]
 
 for project in projects:
     service_name = f"pipeline_{project}"
-    
-    # Docker Compose Entry
-    compose_services["services"][service_name] = {
-        "build": {
-            "context": f"{PIPELINE_DIR}",
-            "dockerfile": f"{project}/Dockerfile"
-        },
+
+    # Production Docker Compose Entry
+    compose_prod["services"][service_name] = {
+        "build": {"context": f"{PIPELINE_DIR}", "dockerfile": f"{project}/Dockerfile"},
         "env_file": ".env",
         "expose": ["4000"],
         "networks": ["dagster_network"],
-        "restart": "unless-stopped"
+        "restart": "unless-stopped",
+    }
+
+    # Dev Docker Compose Entry (with volume mounts for hot reload)
+    compose_dev["services"][service_name] = {
+        "build": {"context": f"{PIPELINE_DIR}", "dockerfile": f"{project}/Dockerfile"},
+        "env_file": ".env.local",
+        "volumes": [
+            f"./pipelines/{project}/assets:/opt/dagster/app/assets:ro",
+            f"./pipelines/{project}/defs.py:/opt/dagster/app/defs.py:ro",
+            "./pipelines/_shared:/opt/dagster/app/_shared:ro",
+            "./data:/opt/dagster/app/data",
+        ],
+        "expose": ["4000"],
+        "networks": ["dagster_network"],
+        "depends_on": ["postgresql"],
     }
 
     # Workspace Entry
-    workspace_entries["load_from"].append({
-        "grpc_server": {
-            "host": service_name,
-            "port": 4000,
-            "location_name": project
-        }
-    })
+    workspace_entries["load_from"].append(
+        {"grpc_server": {"host": service_name, "port": 4000, "location_name": project}}
+    )
 
-# Write compose override
-with open(COMPOSE_FILE, "w") as f:
+# Write production compose override
+with open(COMPOSE_PROD_FILE, "w") as f:
     f.write("# AUTO-GENERATED - DO NOT EDIT\n")
-    yaml.dump(compose_services, f, default_flow_style=False)
+    yaml.dump(compose_prod, f, default_flow_style=False)
+
+# Write dev compose
+with open(COMPOSE_DEV_FILE, "w") as f:
+    f.write("# AUTO-GENERATED - DO NOT EDIT\n")
+    f.write("# Development environment with volume mounts for hot reload\n")
+    f.write(
+        "# Usage: docker compose -f docker-compose.dev.generated.yaml up --build\n\n"
+    )
+    yaml.dump(compose_dev, f, default_flow_style=False, sort_keys=False)
 
 # Write workspace config
 with open(WORKSPACE_FILE, "w") as f:
@@ -51,7 +128,6 @@ with open(WORKSPACE_FILE, "w") as f:
     if workspace_entries["load_from"]:
         yaml.dump(workspace_entries, f, default_flow_style=False)
     else:
-        # Empty workspace placeholder
         f.write("load_from: []\n")
 
 print(f"Generated config for {len(projects)} pipeline(s).")

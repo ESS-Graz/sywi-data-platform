@@ -1,0 +1,13 @@
+[project]
+name = "sywi-data-platform"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    # Minimal dependencies for dev.sh utility commands (pull, mark)
+    "dagster",
+    "duckdb",
+    "pyyaml>=6.0.3",
+]
+
+[dependency-groups]
+dev = []

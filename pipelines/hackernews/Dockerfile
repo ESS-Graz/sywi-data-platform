@@ -9,8 +9,9 @@ COPY hackernews/pyproject.toml hackernews/uv.lock* ./
 # Install Python dependencies
 RUN uv sync --frozen || uv sync
 
-# Copy the rest of the project
-COPY hackernews/repo/ ./repo/
+# Copy the pipeline code
+COPY hackernews/assets/ ./assets/
+COPY hackernews/defs.py ./
 
-# Run the Dagster gRPC server with correct working directory
-CMD ["uv", "run", "dagster", "api", "grpc", "-h", "0.0.0.0", "-p", "4000", "-f", "repo/defs.py", "-d", "repo"]
+# Run the Dagster gRPC server
+CMD ["uv", "run", "dagster", "api", "grpc", "-h", "0.0.0.0", "-p", "4000", "-f", "defs.py"]

@@ -5,6 +5,9 @@ workspace.generated.yaml
 # Environment variables (contains secrets)
 .env
 
+# Local dev outputs
+*.csv
+
 # Python
 __pycache__/
 *.pyc

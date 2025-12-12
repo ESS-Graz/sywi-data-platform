@@ -1,0 +1,19 @@
+Package: sywi.duckdb
+Title: SYWI DuckLake Connection Wrapper
+Version: 0.1.0
+Author: SYWI Team <team@sywi.org>
+Maintainer: SYWI Team <team@sywi.org>
+Description: A wrapper around the duckdb package that automatically configures
+    connections to SYWI DuckLake databases. Loads environment variables from
+    .env and .env.local files and attaches both local and remote DuckLake
+    databases.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.1
+Imports:
+    duckdb (>= 1.0.0),
+    DBI
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3

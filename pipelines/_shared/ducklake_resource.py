@@ -8,31 +8,46 @@ from dagster import ConfigurableResource
 from pydantic import Field
 
 
+def _is_postgres_mode(dsn: str) -> bool:
+    """Detect if DSN is for Postgres mode (vs local file mode)."""
+    return "host=" in dsn
+
+
 class DuckLakeResource(ConfigurableResource):
     """Resource for connecting to DuckLake with full configuration.
 
-    Provides direct access to DuckLake tables for reading and updating,
-    bypassing the IOManager when you need more control.
+    Supports two modes:
+    - Local mode: DSN is a file path (e.g., './data/ducklake.ducklake')
+    - Postgres mode: DSN contains 'host=' (e.g., 'dbname=... host=localhost ...')
+
+    In local mode, S3 configuration is not needed.
+    In Postgres mode, S3 configuration is required for remote storage.
     """
 
     duckdb_database: str = Field(
         default=":memory:", description="Path to DuckDB database file or ':memory:'"
     )
     ducklake_catalog_dsn: str = Field(
-        description="DuckLake catalog connection string (e.g., 'dbname=ducklake_catalog host=localhost user=traindata password=traindata port=5433')"
+        description="DuckLake catalog: file path for local mode, or Postgres DSN for remote mode"
     )
     ducklake_data_path: str = Field(
-        description="S3 data path for DuckLake (e.g., 's3://ducklake/data/')"
+        description="Data path: local directory (e.g., './data/') or S3 path (e.g., 's3://bucket/path/')"
     )
-    s3_region: str = Field(default="us-east-1")
-    s3_endpoint: str = Field(description="S3/MinIO endpoint (e.g., '127.0.0.1:9000')")
-    s3_access_key_id: str = Field(description="S3 access key")
-    s3_secret_access_key: str = Field(description="S3 secret key")
-    s3_url_style: str = Field(default="path")
-    s3_use_ssl: bool = Field(default=False)
     ducklake_schema: str = Field(
         default="my_ducklake", description="Schema name for DuckLake tables"
     )
+
+    # S3 configuration - only required for Postgres mode with S3 storage
+    s3_region: str | None = Field(default=None)
+    s3_endpoint: str | None = Field(default=None)
+    s3_access_key_id: str | None = Field(default=None)
+    s3_secret_access_key: str | None = Field(default=None)
+    s3_url_style: str | None = Field(default=None)
+    s3_use_ssl: bool | None = Field(default=None)
+
+    def _is_s3_storage(self) -> bool:
+        """Check if data path is S3."""
+        return self.ducklake_data_path.startswith("s3://")
 
     @contextmanager
     def get_connection(self) -> Iterator[duckdb.DuckDBPyConnection]:
@@ -43,34 +58,49 @@ class DuckLakeResource(ConfigurableResource):
                 df = conn.execute("SELECT * FROM my_ducklake.my_table").fetchdf()
         """
         conn = duckdb.connect(self.duckdb_database)
+        is_postgres = _is_postgres_mode(self.ducklake_catalog_dsn)
 
         try:
-            # Install and load extensions
+            # Install and load ducklake (always needed)
             conn.execute("INSTALL ducklake;")
-            conn.execute("INSTALL postgres;")
-            conn.execute("INSTALL httpfs;")
-            conn.execute("INSTALL vss;")
             conn.execute("LOAD ducklake;")
-            conn.execute("LOAD postgres;")
-            conn.execute("LOAD httpfs;")
-            conn.execute("LOAD vss;")
 
-            # Configure S3/MinIO
-            conn.execute(f"SET s3_region = '{self.s3_region}';")
-            conn.execute(f"SET s3_endpoint = '{self.s3_endpoint}';")
-            conn.execute(f"SET s3_url_style = '{self.s3_url_style}';")
-            conn.execute(f"SET s3_access_key_id = '{self.s3_access_key_id}';")
-            conn.execute(f"SET s3_secret_access_key = '{self.s3_secret_access_key}';")
-            conn.execute(f"SET s3_use_ssl = {str(self.s3_use_ssl).lower()};")
+            if is_postgres:
+                # Postgres mode - need postgres extension
+                conn.execute("INSTALL postgres;")
+                conn.execute("LOAD postgres;")
+
+            if self._is_s3_storage():
+                # S3 storage - need httpfs and S3 config
+                conn.execute("INSTALL httpfs;")
+                conn.execute("LOAD httpfs;")
+
+                conn.execute(f"SET s3_region = '{self.s3_region}';")
+                conn.execute(f"SET s3_endpoint = '{self.s3_endpoint}';")
+                conn.execute(f"SET s3_url_style = '{self.s3_url_style}';")
+                conn.execute(f"SET s3_access_key_id = '{self.s3_access_key_id}';")
+                conn.execute(
+                    f"SET s3_secret_access_key = '{self.s3_secret_access_key}';"
+                )
+                conn.execute(f"SET s3_use_ssl = {str(self.s3_use_ssl).lower()};")
 
             # Attach DuckLake
-            conn.execute(
-                f"""
-                ATTACH 'ducklake:postgres:{self.ducklake_catalog_dsn}'
-                AS {self.ducklake_schema}
-                (DATA_PATH '{self.ducklake_data_path}');
-                """
-            )
+            if is_postgres:
+                conn.execute(
+                    f"""
+                    ATTACH 'ducklake:postgres:{self.ducklake_catalog_dsn}'
+                    AS {self.ducklake_schema}
+                    (DATA_PATH '{self.ducklake_data_path}');
+                    """
+                )
+            else:
+                conn.execute(
+                    f"""
+                    ATTACH 'ducklake:{self.ducklake_catalog_dsn}'
+                    AS {self.ducklake_schema}
+                    (DATA_PATH '{self.ducklake_data_path}');
+                    """
+                )
 
             yield conn
 
