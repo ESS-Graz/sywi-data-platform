@@ -285,7 +285,7 @@ Defined in `docker-compose.core.yaml`:
 
 ```
 sywi_data_plattform/
-├── dev.sh                    # Development helper script
+├── dev                       # Development helper script
 ├── deploy.sh                 # Production deployment script
 ├── watchdog.sh               # Auto-deploy on git changes
 ├── generate_platform.py      # Generates Docker Compose config
@@ -293,7 +293,6 @@ sywi_data_plattform/
 ├── dagster.yaml              # Dagster instance config (production)
 ├── Dockerfile.base           # Base Docker image
 ├── docker-compose.core.yaml  # Core services (Postgres, Dagster)
-├── docker-compose.dev.yaml   # Development environment
 ├── data/                     # Local DuckLake data (gitignored)
 ├── pipelines/
 │   ├── _shared/              # Shared resources (copied into all containers)
