@@ -1,13 +1,24 @@
 """HackerNews data ingestion from API."""
 
+import os
+from pathlib import Path
+
 import pandas as pd
 import requests
 from dagster import AssetExecutionContext, MetadataValue, asset
 
+# Lock file path - inside assets folder so it's visible in Docker mount
+LOCK_FILE = Path(__file__).parent / ".ingestion.lock"
+
+
+def is_ingestion_locked() -> bool:
+    """Check if ingestion is locked by presence of lock file."""
+    return LOCK_FILE.exists()
+
 
 @asset(
     group_name="hackernews",
-    description="Fetches the top 5 story IDs from the HackerNews API",
+    description="Fetches the top 5 story IDs from the HackerNews API. Create .hackernews_ingestion.lock file to disable.",
     metadata={
         "source": "HackerNews API",
         "api_endpoint": "https://hacker-news.firebaseio.com/v0/topstories.json",
@@ -20,6 +31,9 @@ from dagster import AssetExecutionContext, MetadataValue, asset
 )
 def hackernews_top_stories_ids(context: AssetExecutionContext) -> pd.DataFrame:
     """Fetch the top 5 story IDs from HackerNews."""
+    if is_ingestion_locked():
+        raise RuntimeError(f"Asset is locked. Remove {LOCK_FILE} to enable execution.")
+
     top_story_ids = requests.get(
         "https://hacker-news.firebaseio.com/v0/topstories.json"
     ).json()[:5]
