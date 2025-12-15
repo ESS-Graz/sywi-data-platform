@@ -86,12 +86,7 @@ for project in projects:
         "expose": ["4000"],
         "networks": ["dagster_network"],
         "restart": "unless-stopped",
-        "ulimits": {
-            "nofile": {
-                "soft": 65536,
-                "hard": 65536
-            }
-        }
+        "ulimits": {"nofile": {"soft": 65536, "hard": 65536}},
     }
 
     # Dev Docker Compose Entry (with volume mounts for hot reload)
@@ -103,6 +98,16 @@ for project in projects:
             f"./pipelines/{project}/defs.py:/opt/dagster/app/defs.py:ro",
             "./pipelines/_shared:/opt/dagster/app/_shared:ro",
             "./data:/opt/dagster/app/data",
+        ],
+        # Use watchfiles to auto-restart grpc server on code changes
+        "command": [
+            "watchfiles",
+            "--filter",
+            "python",
+            "uv run dagster api grpc -h 0.0.0.0 -p 4000 -f defs.py",
+            "./assets",
+            "./_shared",
+            "./defs.py",
         ],
         "expose": ["4000"],
         "networks": ["dagster_network"],
