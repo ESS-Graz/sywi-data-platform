@@ -86,6 +86,12 @@ for project in projects:
         "expose": ["4000"],
         "networks": ["dagster_network"],
         "restart": "unless-stopped",
+        "ulimits": {
+            "nofile": {
+                "soft": 65536,
+                "hard": 65536
+            }
+        }
     }
 
     # Dev Docker Compose Entry (with volume mounts for hot reload)
