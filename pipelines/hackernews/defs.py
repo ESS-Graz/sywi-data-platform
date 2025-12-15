@@ -6,7 +6,7 @@ from dagster import Definitions
 
 from _shared import ducklake_io_manager, DuckLakeResource
 from assets import (
-    hackernews_top_stories,
+    hackernews_top_stories_ids,
     hackernews_titles,
     hackernews_stories,
     save_to_csv,
@@ -73,7 +73,7 @@ def _get_ducklake_resource() -> DuckLakeResource:
 
 defs = Definitions(
     assets=[
-        hackernews_top_stories,
+        hackernews_top_stories_ids,
         hackernews_titles,
         hackernews_stories,
         save_to_csv,

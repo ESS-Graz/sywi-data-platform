@@ -18,7 +18,7 @@ from dagster import AssetExecutionContext, MetadataValue, asset
     },
     code_version="2.0.0",
 )
-def hackernews_top_stories(context: AssetExecutionContext) -> pd.DataFrame:
+def hackernews_top_stories_ids(context: AssetExecutionContext) -> pd.DataFrame:
     """Fetch the top 5 story IDs from HackerNews."""
     top_story_ids = requests.get(
         "https://hacker-news.firebaseio.com/v0/topstories.json"
@@ -55,11 +55,11 @@ def hackernews_top_stories(context: AssetExecutionContext) -> pd.DataFrame:
     code_version="2.0.0",
 )
 def hackernews_titles(
-    context: AssetExecutionContext, hackernews_top_stories: pd.DataFrame
+    context: AssetExecutionContext, hackernews_top_stories_ids: pd.DataFrame
 ) -> pd.DataFrame:
     """Fetch titles and authors for the top stories."""
     # Convert DataFrame to list of story IDs
-    story_ids = hackernews_top_stories["story_id"].tolist()
+    story_ids = hackernews_top_stories_ids["story_id"].tolist()
 
     results = []
     for story_id in story_ids:
