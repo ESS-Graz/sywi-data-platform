@@ -8,7 +8,6 @@ workspace.generated.yaml
 .env.local
 
 # Local dev outputs
-*.csv
 
 # Python
 __pycache__/

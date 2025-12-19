@@ -2,6 +2,7 @@
 
 import os
 import re
+from pathlib import Path
 
 import pandas as pd
 from dagster import AssetExecutionContext, MetadataValue, asset
@@ -21,7 +22,7 @@ def evaluation_patents(
     context: AssetExecutionContext, ducklake: DuckLakeResource
 ) -> None:
     """Read evaluation patents from CSV and insert into raw_patents_data with is_evaluation flag."""
-    csv_path = "data/patents_loaded.csv"
+    csv_path = Path(__file__).parent.parent / "raw_data" / "patents_loaded.csv"
 
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
