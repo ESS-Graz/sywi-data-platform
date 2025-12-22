@@ -26,9 +26,10 @@ services:
 
   dagster_webserver:
     image: my-platform-base:latest
-    command: dagster-webserver -h 0.0.0.0 -p 3000 -w workspace.yaml
+    command: dagster-webserver -h 0.0.0.0 -p 3000 -w workspace.yaml --path-prefix /dagster
     environment:
       DAGSTER_HOME: /opt/dagster/dagster_home
+      DAGSTER_UI_PATH_PREFIX: /dagster
     volumes:
       - ./workspace.generated.yaml:/opt/dagster/app/workspace.yaml
       - ./dagster.yaml:/opt/dagster/dagster_home/dagster.yaml
