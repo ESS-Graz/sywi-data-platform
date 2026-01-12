@@ -273,9 +273,24 @@ def logs(
 
 @app.command()
 def db():
-    """Open interactive DuckDB session (local + remote attached)."""
+    """Open interactive DuckDB session (local + remote attached).
+
+    Requires DuckDB CLI to be installed separately:
+    - macOS: brew install duckdb
+    - Windows: winget install DuckDB.cli
+    - Linux: https://duckdb.org/docs/installation/
+    """
+    # Check if duckdb CLI is available
+    if not shutil.which("duckdb"):
+        err_console.print("[red]Error:[/red] DuckDB CLI not found.")
+        err_console.print("Install it separately:")
+        err_console.print("  macOS:   brew install duckdb")
+        err_console.print("  Windows: winget install DuckDB.cli")
+        err_console.print("  Linux:   https://duckdb.org/docs/installation/")
+        raise typer.Exit(1)
+
     sql = build_duckdb_init_sql(include_remote=True)
-    run(["uv", "run", "python", "-m", "duckdb.cli", "-cmd", sql])
+    run(["duckdb", "-cmd", sql])
 
 
 @app.command("export")
