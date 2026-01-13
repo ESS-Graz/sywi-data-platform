@@ -63,11 +63,6 @@ def docker_compose(*args: str, check: bool = True) -> subprocess.CompletedProces
     return run(["docker", "compose", "-f", DEV_COMPOSE, *args], check=check)
 
 
-def get_env(name: str, default: Optional[str] = None) -> Optional[str]:
-    """Get environment variable with optional default."""
-    return os.environ.get(name, default)
-
-
 def require_env(name: str) -> str:
     """Get required environment variable or exit with error."""
     value = os.environ.get(name)
@@ -82,77 +77,32 @@ def _dsn_for_host(dsn: str) -> str:
     return dsn.replace("host=postgresql", "host=localhost")
 
 
-def _is_postgres_dsn(dsn: str) -> bool:
-    """Check if DSN is for Postgres mode (vs local file mode)."""
-    return "host=" in dsn
+def build_duckdb_init_sql(default_schema: str = "local") -> str:
+    """Build DuckDB initialization SQL with local and remote DuckLake attached."""
+    local_catalog_dsn = _dsn_for_host(os.environ.get("DUCKLAKE_CATALOG_DSN") or "")
+    local_data_path = os.environ.get("DUCKLAKE_DATA_PATH", "")
+    local_schema = os.environ.get("DUCKLAKE_SCHEMA", "local")
 
-
-def build_duckdb_init_sql(
-    include_remote: bool = False, remote_only: bool = False
-) -> str:
-    """Build DuckDB initialization SQL for local and/or remote DuckLake."""
-    # Get local config to determine if we need postgres extension
-    local_catalog_dsn = _dsn_for_host(get_env("DUCKLAKE_CATALOG_DSN") or "")
-    local_is_postgres = _is_postgres_dsn(local_catalog_dsn)
+    remote_catalog_dsn = os.environ.get("DUCKLAKE_REMOTE_CATALOG_DSN", "")
+    remote_data_path = os.environ.get("DUCKLAKE_REMOTE_DATA_PATH", "")
 
     lines = [
-        "INSTALL ducklake;",
-        "LOAD ducklake;",
+        "INSTALL ducklake; LOAD ducklake;",
+        "INSTALL postgres; LOAD postgres;",
+        "INSTALL httpfs; LOAD httpfs;",
+        "",
+        f"SET s3_region = '{os.environ.get('DUCKLAKE_REMOTE_S3_REGION', 'us-east-1')}';",
+        f"SET s3_endpoint = '{os.environ.get('DUCKLAKE_REMOTE_S3_ENDPOINT', '')}';",
+        f"SET s3_url_style = '{os.environ.get('DUCKLAKE_REMOTE_S3_URL_STYLE', 'path')}';",
+        f"SET s3_access_key_id = '{os.environ.get('DUCKLAKE_REMOTE_S3_ACCESS_KEY_ID', '')}';",
+        f"SET s3_secret_access_key = '{os.environ.get('DUCKLAKE_REMOTE_S3_SECRET_ACCESS_KEY', '')}';",
+        f"SET s3_use_ssl = {os.environ.get('DUCKLAKE_REMOTE_S3_USE_SSL', 'false')};",
+        "",
+        f"ATTACH 'ducklake:postgres:{local_catalog_dsn}' AS {local_schema} (DATA_PATH '{local_data_path}');",
+        f"ATTACH 'ducklake:postgres:{remote_catalog_dsn}' AS remote (DATA_PATH '{remote_data_path}', READ_ONLY);",
+        "",
+        f"USE {default_schema};",
     ]
-
-    # Load postgres extension if needed (for local or remote)
-    if local_is_postgres or include_remote or remote_only:
-        lines.extend(
-            [
-                "INSTALL postgres;",
-                "LOAD postgres;",
-            ]
-        )
-
-    # Load httpfs and S3 config for remote
-    if include_remote or remote_only:
-        lines.extend(
-            [
-                "INSTALL httpfs;",
-                "LOAD httpfs;",
-                "",
-                f"SET s3_region = '{get_env('DUCKLAKE_REMOTE_S3_REGION', 'us-east-1')}';",
-                f"SET s3_endpoint = '{get_env('DUCKLAKE_REMOTE_S3_ENDPOINT', '')}';",
-                f"SET s3_url_style = '{get_env('DUCKLAKE_REMOTE_S3_URL_STYLE', 'path')}';",
-                f"SET s3_access_key_id = '{get_env('DUCKLAKE_REMOTE_S3_ACCESS_KEY_ID', '')}';",
-                f"SET s3_secret_access_key = '{get_env('DUCKLAKE_REMOTE_S3_SECRET_ACCESS_KEY', '')}';",
-                f"SET s3_use_ssl = {get_env('DUCKLAKE_REMOTE_S3_USE_SSL', 'false')};",
-                "",
-            ]
-        )
-
-    if not remote_only:
-        data_path = get_env("DUCKLAKE_DATA_PATH", "")
-        schema = get_env("DUCKLAKE_SCHEMA", "local")
-        if local_is_postgres:
-            lines.append(
-                f"ATTACH 'ducklake:postgres:{local_catalog_dsn}' AS {schema} (DATA_PATH '{data_path}');"
-            )
-        else:
-            lines.append(
-                f"ATTACH 'ducklake:{local_catalog_dsn}' AS {schema} (DATA_PATH '{data_path}');"
-            )
-
-    if include_remote or remote_only:
-        remote_catalog_dsn = get_env("DUCKLAKE_REMOTE_CATALOG_DSN", "")
-        remote_data_path = get_env("DUCKLAKE_REMOTE_DATA_PATH", "")
-        read_only = ", READ_ONLY" if not remote_only else ""
-        lines.append(
-            f"ATTACH 'ducklake:postgres:{remote_catalog_dsn}' AS remote "
-            f"(DATA_PATH '{remote_data_path}'{read_only});"
-        )
-
-    # Set default database
-    schema = get_env("DUCKLAKE_SCHEMA", "local")
-    if remote_only:
-        lines.append("USE remote;")
-    else:
-        lines.append(f"USE {schema};")
 
     return "\n".join(lines)
 
@@ -317,7 +267,7 @@ def db():
         err_console.print("  Linux:   https://duckdb.org/docs/installation/")
         raise typer.Exit(1)
 
-    sql = build_duckdb_init_sql(include_remote=True)
+    sql = build_duckdb_init_sql()
     run(["duckdb", "-cmd", sql])
 
 
@@ -346,10 +296,9 @@ def export_table(
     ext, format_opts = format_map[format]
     output_file = f"{table}.{ext}"
 
-    schema = get_env("DUCKLAKE_SCHEMA") or "local"
+    schema = os.environ.get("DUCKLAKE_SCHEMA") or "local"
     if source == "remote":
-        require_env("DUCKLAKE_REMOTE_CATALOG_DSN")
-        init_sql = build_duckdb_init_sql(remote_only=True)
+        init_sql = build_duckdb_init_sql("remote")
         source_table = f"remote.{table}"
     else:
         init_sql = build_duckdb_init_sql()
@@ -374,16 +323,14 @@ def pull(
     limit: Optional[int] = typer.Argument(None, help="Limit number of rows to pull"),
 ):
     """List remote tables or pull table from remote DuckLake."""
-    require_env("DUCKLAKE_REMOTE_CATALOG_DSN")
-
     # Ensure data directory exists
     (SCRIPT_DIR / "data").mkdir(parents=True, exist_ok=True)
 
-    init_sql = build_duckdb_init_sql(include_remote=True)
+    init_sql = build_duckdb_init_sql()
     conn = duckdb.connect()
     conn.execute(init_sql)
 
-    schema = get_env("DUCKLAKE_SCHEMA") or "local"
+    schema = os.environ.get("DUCKLAKE_SCHEMA") or "local"
     if table is None:
         # List tables
         console.print("Remote tables:")
