@@ -8,7 +8,7 @@ services:
     volumes:
       - dagster_pgdata:/var/lib/postgresql/data
     networks:
-      - dagster_network
+      - sywi-dagster
 
   dagster_daemon:
     image: my-platform-base:latest
@@ -21,7 +21,7 @@ services:
     depends_on:
       - postgresql
     networks:
-      - dagster_network
+      - sywi-dagster
     restart: unless-stopped
 
   dagster_webserver:
@@ -39,11 +39,12 @@ services:
       - postgresql
       - dagster_daemon
     networks:
-      - dagster_network
+      - sywi-dagster
     restart: unless-stopped
 
 networks:
-  dagster_network:
+  sywi-dagster:
+    name: sywi-dagster
     driver: bridge
 
 volumes:

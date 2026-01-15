@@ -32,7 +32,7 @@ compose_dev = {
                 "dagster_pgdata_dev:/var/lib/postgresql/data",
                 "./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro",
             ],
-            "networks": ["dagster_network"],
+            "networks": ["sywi-dagster"],
             "ports": ["5432:5432"],
         },
         "dagster_daemon": {
@@ -46,7 +46,7 @@ compose_dev = {
                 "./data:/opt/dagster/app/data",
             ],
             "depends_on": ["postgresql"],
-            "networks": ["dagster_network"],
+            "networks": ["sywi-dagster"],
         },
         "dagster_webserver": {
             "image": "my-platform-base:latest",
@@ -60,10 +60,10 @@ compose_dev = {
             ],
             "ports": ["3000:3000"],
             "depends_on": ["postgresql", "dagster_daemon"],
-            "networks": ["dagster_network"],
+            "networks": ["sywi-dagster"],
         },
     },
-    "networks": {"dagster_network": {"driver": "bridge"}},
+    "networks": {"sywi-dagster": {"name": "sywi-dagster", "driver": "bridge"}},
     "volumes": {"dagster_pgdata_dev": None},
 }
 
@@ -90,7 +90,7 @@ for project in projects:
         "build": {"context": f"{PIPELINE_DIR}", "dockerfile": f"{project}/Dockerfile"},
         "env_file": ".env",
         "expose": ["4000"],
-        "networks": ["dagster_network"],
+        "networks": ["sywi-dagster"],
         "restart": "unless-stopped",
         "ulimits": {"nofile": {"soft": 65536, "hard": 65536}},
     }
@@ -116,7 +116,7 @@ for project in projects:
             "./defs.py",
         ],
         "expose": ["4000"],
-        "networks": ["dagster_network"],
+        "networks": ["sywi-dagster"],
         "depends_on": ["postgresql"],
         "healthcheck": {
             "test": [
