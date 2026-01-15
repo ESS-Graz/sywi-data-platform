@@ -101,16 +101,14 @@ class DuckLakeIOManager(IOManager):
             conn.execute(
                 f"""
                 ATTACH 'ducklake:postgres:{self._ducklake_catalog_dsn}'
-                AS {self._ducklake_schema}
-                (DATA_PATH '{self._ducklake_data_path}');
+                AS {self._ducklake_schema};
                 """
             )
         else:
             conn.execute(
                 f"""
                 ATTACH 'ducklake:{self._ducklake_catalog_dsn}'
-                AS {self._ducklake_schema}
-                (DATA_PATH '{self._ducklake_data_path}');
+                AS {self._ducklake_schema};
                 """
             )
 

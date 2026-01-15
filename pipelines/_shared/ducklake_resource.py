@@ -89,16 +89,14 @@ class DuckLakeResource(ConfigurableResource):
                 conn.execute(
                     f"""
                     ATTACH 'ducklake:postgres:{self.ducklake_catalog_dsn}'
-                    AS {self.ducklake_schema}
-                    (DATA_PATH '{self.ducklake_data_path}');
+                    AS {self.ducklake_schema};
                     """
                 )
             else:
                 conn.execute(
                     f"""
                     ATTACH 'ducklake:{self.ducklake_catalog_dsn}'
-                    AS {self.ducklake_schema}
-                    (DATA_PATH '{self.ducklake_data_path}');
+                    AS {self.ducklake_schema};
                     """
                 )
 

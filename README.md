@@ -32,10 +32,13 @@ Local development uses Docker Compose to run isolated pipeline containers, match
 # 1. Clone and enter the project
 cd sywi_data_plattform
 
-# 2. Create your local environment file
+# 2. Create your local environment file (or place the .env.local you got per email in the root folder of the project)
 cp .env.example .env.local
 
-# 3. Start Dagster (Docker Compose)
+# 3. Initialize the local ducklake (command needs to be run once before first start)
+uv run dev db
+
+# 4. Start Dagster (Docker Compose)
 uv run dev up
 ```
 
