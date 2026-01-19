@@ -76,6 +76,14 @@ def require_env(name: str) -> str:
     return value
 
 
+def _check_docker_running() -> None:
+    """Check if Docker daemon is running."""
+    result = run(["docker", "info"], check=False, capture_output=True)
+    if result.returncode != 0:
+        err_console.print("[red]Error:[/red] Docker daemon is not running.")
+        raise typer.Exit(1)
+
+
 def _dsn_for_host(dsn: str) -> str:
     """Convert Docker hostname to localhost for CLI usage outside containers."""
     return dsn.replace("host=postgresql", "host=localhost")
@@ -184,6 +192,8 @@ def build_duckdb_init_sql(
 @app.command()
 def up():
     """Start Dagster dev environment (native Python, PostgreSQL in Docker)."""
+    _check_docker_running()
+
     # Ensure data directory exists
     (SCRIPT_DIR / "data").mkdir(parents=True, exist_ok=True)
 
@@ -229,6 +239,8 @@ def down():
 @app.command()
 def prod():
     """Start production-like environment (full Docker stack)."""
+    _check_docker_running()
+
     # Check for .env.local
     if not ENV_FILE.exists():
         err_console.print(
