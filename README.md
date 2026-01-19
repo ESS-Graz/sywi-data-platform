@@ -82,6 +82,23 @@ DuckLake stores:
 - **Catalog metadata** in PostgreSQL (shared with Dagster)
 - **Table data** as Parquet files in `./data/`
 
+### Running Specific Projects
+
+By default, `just up` starts all projects defined in `dg.toml`. To start only specific projects, set `DEV_PROJECTS` in `.env.local`:
+
+```bash
+# Start only the hackernews project
+DEV_PROJECTS=hackernews
+
+# Start multiple projects (comma-separated)
+DEV_PROJECTS=hackernews,patents
+
+# Start all projects (default if empty or not set)
+# DEV_PROJECTS=
+```
+
+This is useful when working on a single project and wanting faster startup times.
+
 ### Working with Data
 
 #### Interactive DuckDB Session

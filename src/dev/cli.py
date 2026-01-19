@@ -109,18 +109,64 @@ def _wait_for_postgres(max_attempts: int = 30) -> bool:
     return False
 
 
-def _sync_subprojects() -> None:
-    """Sync all subprojects defined in dg.toml."""
+def _get_all_projects() -> list[dict]:
+    """Get all projects defined in dg.toml."""
     import tomllib
 
     dg_toml = SCRIPT_DIR / "dg.toml"
     if not dg_toml.exists():
-        return
+        return []
 
     with open(dg_toml, "rb") as f:
         config = tomllib.load(f)
 
-    projects = config.get("workspace", {}).get("projects", [])
+    return config.get("workspace", {}).get("projects", [])
+
+
+def _get_enabled_projects() -> list[dict]:
+    """Get enabled projects based on DEV_PROJECTS env var.
+
+    Returns:
+        List of enabled project dicts (each with 'path' key).
+        If DEV_PROJECTS is empty/unset, returns all projects.
+        If DEV_PROJECTS is set, validates and returns only those projects.
+
+    Raises:
+        typer.Exit: If any project in DEV_PROJECTS is not found in dg.toml.
+    """
+    all_projects = _get_all_projects()
+    all_paths: set[str] = {p.get("path") for p in all_projects if p.get("path")}  # type: ignore[misc]
+
+    dev_projects_env = os.environ.get("DEV_PROJECTS", "").strip()
+
+    # Empty or unset means start all projects
+    if not dev_projects_env:
+        return all_projects
+
+    # Parse comma-separated list
+    requested = [p.strip() for p in dev_projects_env.split(",") if p.strip()]
+
+    # Validate all requested projects exist
+    for project_name in requested:
+        if project_name not in all_paths:
+            err_console.print(
+                f"[red]Error:[/red] Project '{project_name}' not found in dg.toml"
+            )
+            err_console.print(f"Available projects: {', '.join(sorted(all_paths))}")
+            raise typer.Exit(1)
+
+    # Filter to only requested projects
+    return [p for p in all_projects if p.get("path") in requested]
+
+
+def _sync_subprojects(projects: list[dict] | None = None) -> None:
+    """Sync subprojects.
+
+    Args:
+        projects: List of project dicts to sync. If None, syncs all from dg.toml.
+    """
+    if projects is None:
+        projects = _get_all_projects()
 
     if not projects:
         return
@@ -189,6 +235,34 @@ def build_duckdb_init_sql(
     return "\n".join(lines)
 
 
+def _create_temp_dg_toml(projects: list[dict]) -> Path:
+    """Create a temporary dg.toml with only the specified projects.
+
+    Args:
+        projects: List of project dicts to include.
+
+    Returns:
+        Path to the directory containing the temp dg.toml.
+    """
+    # Use a fixed location inside .dagster for visibility
+    temp_dir = SCRIPT_DIR / ".dagster" / "dev-workspace"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build dg.toml content
+    lines = ['directory_type = "workspace"', "", "[workspace]"]
+    for project in projects:
+        path = project.get("path")
+        if path:
+            lines.append("[[workspace.projects]]")
+            lines.append(f'path = "../{path}"')
+            lines.append("")
+
+    temp_dg_toml = temp_dir / "dg.toml"
+    temp_dg_toml.write_text("\n".join(lines))
+
+    return temp_dir
+
+
 @app.command()
 def up():
     """Start Dagster dev environment (native Python, PostgreSQL in Docker)."""
@@ -205,8 +279,23 @@ def up():
         )
         raise typer.Exit(1)
 
-    # Sync all subprojects (creates venvs if needed)
-    _sync_subprojects()
+    # Get enabled projects based on DEV_PROJECTS env var
+    all_projects = _get_all_projects()
+    enabled_projects = _get_enabled_projects()
+
+    # Show which projects are enabled
+    enabled_names: list[str] = [p["path"] for p in enabled_projects if p.get("path")]
+    if len(enabled_projects) < len(all_projects):
+        console.print(
+            f"Enabled projects: [bold]{', '.join(enabled_names)}[/bold] "
+            f"({len(enabled_projects)} of {len(all_projects)})"
+        )
+    else:
+        console.print(f"Enabled projects: [bold]all[/bold] ({len(all_projects)})")
+    console.print()
+
+    # Sync only enabled subprojects
+    _sync_subprojects(enabled_projects)
 
     # Start PostgreSQL
     console.print("Starting PostgreSQL...")
@@ -226,8 +315,13 @@ def up():
     )
     console.print()
 
-    # Run dg dev which handles multi-code-location isolation via dg.toml
-    os.execvp("dg", ["dg", "dev"])
+    # Create temp dg.toml with only enabled projects and run dg dev from there
+    if len(enabled_projects) < len(all_projects):
+        temp_dir = _create_temp_dg_toml(enabled_projects)
+        os.execvp("dg", ["dg", "dev", "--target-path", str(temp_dir)])
+    else:
+        # All projects enabled, use normal dg.toml
+        os.execvp("dg", ["dg", "dev"])
 
 
 @app.command()
