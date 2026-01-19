@@ -256,7 +256,7 @@ def _create_temp_dg_toml(projects: list[dict]) -> Path:
         path = project.get("path")
         if path:
             lines.append("[[workspace.projects]]")
-            lines.append(f'path = "../{path}"')
+            lines.append(f'path = "../../{path}"')
             lines.append("")
 
     temp_dg_toml = temp_dir / "dg.toml"
