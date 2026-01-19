@@ -317,6 +317,11 @@ def up():
     )
     console.print()
 
+    # Set DAGSTER_HOME to project's .dagster/home directory (uses SQLite by default)
+    dagster_home = SCRIPT_DIR / ".dagster" / "home"
+    dagster_home.mkdir(parents=True, exist_ok=True)
+    os.environ["DAGSTER_HOME"] = str(dagster_home)
+
     # Create temp dg.toml with only enabled projects and run dg dev from there
     if len(enabled_projects) < len(all_projects):
         temp_dir = _create_temp_dg_toml(enabled_projects)

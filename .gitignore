@@ -23,3 +23,6 @@ data/
 # Temp dir
 temp/
 docs-temp/
+
+# Dagster local state
+.dagster/
