@@ -314,6 +314,7 @@ def up():
 
     # Ensure data directory exists
     (SCRIPT_DIR / "data").mkdir(parents=True, exist_ok=True)
+    (SCRIPT_DIR / "data" / "raw").mkdir(parents=True, exist_ok=True)
 
     # Check for .env.local
     if not ENV_FILE.exists():
@@ -399,6 +400,10 @@ def down():
 def prod():
     """Start production-like environment (full Docker stack)."""
     _check_docker_running()
+
+    # Ensure bind-mounted data directories exist with the current user as owner.
+    (SCRIPT_DIR / "data").mkdir(parents=True, exist_ok=True)
+    (SCRIPT_DIR / "data" / "raw").mkdir(parents=True, exist_ok=True)
 
     # Check for .env.local
     if not ENV_FILE.exists():

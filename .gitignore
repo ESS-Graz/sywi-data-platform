@@ -7,6 +7,7 @@ workspace.generated.yaml
 .env.local
 
 # Local dev outputs
+**/raw_data/
 
 # Python
 __pycache__/
@@ -17,7 +18,7 @@ __pycache__/
 .idea/
 .vscode/
 
-# Docker volumes (if any local)
+# Local data and bind-mounted raw inputs
 data/
 
 # Temp dir

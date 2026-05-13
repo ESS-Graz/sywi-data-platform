@@ -1,0 +1,55 @@
+[project]
+name = "ikariam-pipeline-v2"
+version = "0.2.0"
+description = "Ikariam telemetry pipeline — panel data in LanceDB with DuckDB views"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "polars>=1.37.0",
+    "connectorx>=0.4.3",
+    "pyarrow>=19.0.0",
+    "pyyaml>=6.0.2",
+    "structlog>=25.5.0",
+    "lancedb>=0.17.0",
+]
+# Note: `duckdb` is no longer a pipeline dep. Users who want to query Lance
+# tables via SQL at read time can install it separately and register via
+# `con.register("x", db[name].to_arrow())`.
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pyright>=1.1.407",
+    "ruff>=0.14.0",
+]
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ikariam_pipeline"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requires running MariaDB with loaded snapshot databases",
+]
+
+[tool.pyright]
+include = ["src", "scripts", "tests"]
+pythonVersion = "3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# schema.py is a pretty-aligned documentation table; line length doesn't apply.
+"src/ikariam_pipeline/schema.py" = ["E501"]

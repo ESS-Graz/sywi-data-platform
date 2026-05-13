@@ -1,0 +1,99 @@
+# Ikariam Pipeline Configuration
+# ================================
+
+# Database connection settings
+database:
+  host: "127.0.0.1"
+  port: 3306
+  user: "root"
+  password: "root"
+
+# Reference timestamp for play duration calculation
+# November 14, 2014 00:00:00 UTC
+reference_timestamp: 1415923200
+
+# Minimum play duration to include players in final datasets (days).
+# Legacy V1 R filter; SQL uses min_registration_time instead (see below).
+min_play_duration_days: 2
+
+# Prelaunch player filter: drop players whose registration_time is before the
+# earliest possible server start time. Legacy SQL name: Q28_Delete_Players.
+# Value: 2013-04-25 10:00:00 UTC = 1366797600 unix seconds. Filter applies to
+# players AND their cities/donations across all downstream aggregations.
+min_registration_time: 1366797600
+
+# Play duration adjustment factors
+# Adjusts resource values based on how long a player has been active
+# to account for inflation/game changes over time
+duration_adjustments:
+  - max_seconds: 180000      # ~2 days
+    factor: 1.00
+  - max_seconds: 1440000     # ~16.7 days
+    factor: 0.98
+  - max_seconds: 13149000    # ~152 days
+    factor: 0.94
+  - max_seconds: .inf        # unlimited
+    factor: 0.86
+
+# Wonder donation split factor
+# When donating to wonder, 66.67% goes to non-matching luxury resources
+wonder_split_factor: 0.666667
+
+# Countries to process
+# Start with DE only, add others later
+countries:
+  - DE
+  # - EN
+  # - FR
+  # - GR
+  # - TR
+
+# German snapshot definitions
+# Format: database name -> snapshot date
+snapshots_de:
+  de_2504_13: "2013-04-25"
+  de_0205_13: "2013-05-02"
+  de_0905_13: "2013-05-09"
+  de_1605_13: "2013-05-16"
+  de_2305_13: "2013-05-23"
+  de_3005_13: "2013-05-30"
+  de_0606_13: "2013-06-06"
+  de_1306_13: "2013-06-13"
+  de_2006_13: "2013-06-20"
+  de_2706_13: "2013-06-27"
+  de_0207_13: "2013-07-02"
+  de_1107_13: "2013-07-11"
+  de_1807_13: "2013-07-18"
+  de_2507_13: "2013-07-25"
+  de_0108_13: "2013-08-01"
+  de_0808_13: "2013-08-08"
+  de_1508_13: "2013-08-15"
+  de_2908_13: "2013-08-29"
+  de_1209_13: "2013-09-12"
+  de_2609_13: "2013-09-26"
+  de_1010_13: "2013-10-10"
+  de_2410_13: "2013-10-24"
+  de_0711_13: "2013-11-07"
+  de_2111_13: "2013-11-21"
+  de_0512_13: "2013-12-05"
+  de_1912_13: "2013-12-19"
+  de_1601_14: "2014-01-16"
+  de_1302_14: "2014-02-13"
+  de_1303_14: "2014-03-13"
+  de_1004_14: "2014-04-10"
+  de_1206_14: "2014-06-12"
+  de_1007_14: "2014-07-10"
+  de_1408_14: "2014-08-14"
+  de_1109_14: "2014-09-11"
+  de_0910_14: "2014-10-09"
+  de_1311_14: "2014-11-13"
+
+# File paths (relative to pipeline_v1/)
+paths:
+  building_costs: "data/building_costs.csv"
+  output_dir: "output/"
+
+# Output settings
+output:
+  delimiter: ";"
+  encoding: "UTF-8"

@@ -106,6 +106,24 @@ This is useful when working on a single project and wanting faster startup times
 
 ### Working with Data
 
+#### Raw Input Files
+
+Raw files that feed pipelines should live under `data/raw/<project>/` instead of
+inside project packages. The `data/` directory is ignored by Git and mounted into
+Docker services as read-only raw input storage.
+
+For example, Ikariam expects:
+
+```text
+data/raw/ikariam/<server>/<snapshot_date>/<table>.parquet
+```
+
+Configure the raw data root in `.env.local`:
+
+```bash
+SYWI_RAW_DATA_DIR=./data/raw
+```
+
 #### Interactive DuckDB Session
 
 ```bash

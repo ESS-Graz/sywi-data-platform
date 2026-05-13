@@ -1,0 +1,31 @@
+[project]
+name = "ikariam"
+version = "0.1.0"
+description = "IKARIAM project for SYWI platform"
+requires-python = ">=3.11"
+dependencies = [
+    "dagster",
+    "dagster-postgres",
+    "lancedb>=0.17.0",
+    "polars>=1.37.0",
+    "pyarrow>=19.0.0",
+    "pyyaml>=6.0.2",
+    "structlog>=25.5.0",
+]
+
+[project.optional-dependencies]
+dev = ["dagster-webserver", "pytest"]
+
+[build-system]
+requires = ["uv_build>=0.9.4,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.dg]
+directory_type = "project"
+
+[tool.dg.project]
+root_module = "ikariam"
+code_location_target_module = "ikariam.definitions"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

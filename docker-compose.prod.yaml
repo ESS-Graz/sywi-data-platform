@@ -28,15 +28,19 @@ services:
     command: dagster-daemon run
     environment:
       DAGSTER_HOME: /opt/dagster/dagster_home
+      SYWI_RAW_DATA_DIR: /opt/dagster/raw_data
     env_file: .env
     volumes:
     - ./workspace.yaml:/opt/dagster/app/workspace.yaml
     - ./dagster.yaml:/opt/dagster/dagster_home/dagster.yaml
     - ./data:/opt/dagster/app/data
+    - ./data/raw:/opt/dagster/raw_data:ro
     depends_on:
       postgresql:
         condition: service_healthy
       project_hackernews:
+        condition: service_started
+      project_ikariam:
         condition: service_started
       project_patents:
         condition: service_started
@@ -52,11 +56,13 @@ services:
     environment:
       DAGSTER_HOME: /opt/dagster/dagster_home
       DAGSTER_UI_PATH_PREFIX: /dagster
+      SYWI_RAW_DATA_DIR: /opt/dagster/raw_data
     env_file: .env
     volumes:
     - ./workspace.yaml:/opt/dagster/app/workspace.yaml
     - ./dagster.yaml:/opt/dagster/dagster_home/dagster.yaml
     - ./data:/opt/dagster/app/data
+    - ./data/raw:/opt/dagster/raw_data:ro
     ports:
     - 3000:3000
     depends_on:
@@ -65,6 +71,8 @@ services:
       dagster_daemon:
         condition: service_started
       project_hackernews:
+        condition: service_started
+      project_ikariam:
         condition: service_started
       project_patents:
         condition: service_started
@@ -76,6 +84,31 @@ services:
       context: .
       dockerfile: hackernews/Dockerfile
     env_file: .env
+    environment:
+      SYWI_RAW_DATA_DIR: /opt/dagster/raw_data
+    volumes:
+    - ./data/raw:/opt/dagster/raw_data:ro
+    expose:
+    - '4000'
+    networks:
+    - sywi-dagster
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    depends_on:
+      postgresql:
+        condition: service_healthy
+  project_ikariam:
+    build:
+      context: .
+      dockerfile: ikariam/Dockerfile
+    env_file: .env
+    environment:
+      SYWI_RAW_DATA_DIR: /opt/dagster/raw_data
+    volumes:
+    - ./data/raw:/opt/dagster/raw_data:ro
     expose:
     - '4000'
     networks:
@@ -93,6 +126,10 @@ services:
       context: .
       dockerfile: patents/Dockerfile
     env_file: .env
+    environment:
+      SYWI_RAW_DATA_DIR: /opt/dagster/raw_data
+    volumes:
+    - ./data/raw:/opt/dagster/raw_data:ro
     expose:
     - '4000'
     networks:

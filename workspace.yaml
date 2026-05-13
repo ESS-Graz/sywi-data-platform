@@ -7,6 +7,10 @@ load_from:
     location_name: hackernews
     port: 4000
 - grpc_server:
+    host: project_ikariam
+    location_name: ikariam
+    port: 4000
+- grpc_server:
     host: project_patents
     location_name: patents
     port: 4000
