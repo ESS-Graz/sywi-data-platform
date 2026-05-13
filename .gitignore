@@ -8,6 +8,7 @@ workspace.generated.yaml
 
 # Local dev outputs
 **/raw_data/
+**/output/
 
 # Python
 __pycache__/
