@@ -12,6 +12,13 @@ A data platform built with [Dagster](https://dagster.io/) and [DuckLake](https:/
 | [just](https://github.com/casey/just) | `brew install just` | `winget install --id=Casey.Just --exact` | `brew install just` or [see docs](https://just.systems/man/en/packages.html) |
 | [Docker](https://docs.docker.com/get-docker/) | Docker Desktop | Docker Desktop | `apt install docker.io docker-compose` |
 
+Production Docker builds use Docker Hardened Images from `dhi.io`. Log in before
+building or deploying:
+
+```bash
+docker login dhi.io
+```
+
 ### Optional
 
 | Tool | macOS | Windows | Linux |
@@ -399,10 +406,12 @@ Polls GitHub every 60 seconds and auto-deploys on changes.
 
 ### Docker Images
 
-Each project has its own `Dockerfile` that:
+Production images are based on Docker Hardened Images. Each project has its own
+`Dockerfile` that:
 
-1. Installs `sywi-core` as a dependency
-2. Installs the project package
-3. Runs the Dagster gRPC server on port 4000
+1. Uses a DHI Python `-dev` build stage with `uv` copied from the DHI uv image
+2. Installs the project package into `/opt/dagster/venv`
+3. Copies the virtual environment into a non-dev DHI Python runtime image
+4. Runs the Dagster gRPC server on port 4000
 
 The `Dockerfile.dagster` image runs the webserver and daemon.

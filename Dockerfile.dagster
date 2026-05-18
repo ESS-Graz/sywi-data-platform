@@ -1,17 +1,41 @@
-# Dagster webserver and daemon image for production
-FROM dhi.io/uv:0-debian13
+# syntax=docker/dockerfile:1.7
 
+ARG DHI_PYTHON_TAG=3.14-debian13
+ARG DHI_UV_TAG=0-debian13
+
+FROM dhi.io/uv:${DHI_UV_TAG} AS uv
+
+FROM dhi.io/python:${DHI_PYTHON_TAG}-dev AS builder
+
+COPY --from=uv /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
 WORKDIR /opt/dagster/app
+ENV VIRTUAL_ENV=/opt/dagster/venv
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 ENV UV_LINK_MODE=copy
 ENV UV_COMPILE_BYTECODE=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+RUN python -m venv "${VIRTUAL_ENV}"
 
 # Install Dagster components
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system \
+    uv pip install --python "${VIRTUAL_ENV}/bin/python" \
     dagster \
     dagster-webserver \
     dagster-postgres
 
 # Create dagster home directory
-ENV DAGSTER_HOME=/opt/dagster/dagster_home
 RUN mkdir -p /opt/dagster/dagster_home
+
+FROM dhi.io/python:${DHI_PYTHON_TAG} AS runtime
+
+WORKDIR /opt/dagster/app
+ENV VIRTUAL_ENV=/opt/dagster/venv
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+ENV DAGSTER_HOME=/opt/dagster/dagster_home
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+COPY --from=builder --chown=65532:65532 /opt/dagster/venv /opt/dagster/venv
+COPY --from=builder --chown=65532:65532 /opt/dagster/dagster_home /opt/dagster/dagster_home
