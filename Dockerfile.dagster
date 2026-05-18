@@ -1,5 +1,5 @@
 # Dagster webserver and daemon image for production
-FROM ghcr.io/astral-sh/uv:0.9.26-python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:python3.14-trixie
 
 WORKDIR /opt/dagster/app
 ENV UV_LINK_MODE=copy
