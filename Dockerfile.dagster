@@ -1,5 +1,5 @@
 # Dagster webserver and daemon image for production
-FROM ghcr.io/astral-sh/uv:python3.14-trixie
+FROM dhi.io/uv:0-debian13
 
 WORKDIR /opt/dagster/app
 ENV UV_LINK_MODE=copy
