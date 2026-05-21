@@ -140,6 +140,16 @@ def _duration_bands(raw: dict[str, Any]) -> tuple[DurationBand, ...]:
     )
 
 
+def _building_costs_path(raw: dict[str, Any], raw_data_dir: Path, base: Path) -> Path:
+    if configured := os.environ.get("IKARIAM_BUILDING_COSTS_PATH"):
+        return _resolve_path(configured)
+
+    if configured := raw.get("paths", {}).get("building_costs"):
+        return _resolve_path(configured, base)
+
+    return (raw_data_dir / "building_costs.csv").resolve()
+
+
 def load_config(path: Path | None = None) -> Config:
     """Load pipeline config from env plus optional YAML.
 
@@ -159,13 +169,7 @@ def load_config(path: Path | None = None) -> Config:
     else:
         resolved_lancedb_path = output_dir / "ikariam.lancedb"
 
-    building_costs_path = _resolve_path(
-        os.environ.get(
-            "IKARIAM_BUILDING_COSTS_PATH",
-            raw.get("paths", {}).get("building_costs", "data/building_costs.csv"),
-        ),
-        base,
-    )
+    building_costs_path = _building_costs_path(raw, raw_data_dir, base)
 
     return Config(
         reference_timestamp=int(raw.get("reference_timestamp", 1415923200)),

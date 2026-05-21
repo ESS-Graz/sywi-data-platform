@@ -66,6 +66,7 @@ def test_default_config_finds_workspace_level_raw_data(monkeypatch, tmp_path: Pa
 
     assert cfg.raw_data_dir == raw_root
     assert cfg.countries == ("DE",)
+    assert cfg.building_costs_path == raw_root / "building_costs.csv"
 
 
 def test_default_config_resolves_from_dagster_dev_workspace(monkeypatch, tmp_path: Path):
@@ -73,7 +74,7 @@ def test_default_config_resolves_from_dagster_dev_workspace(monkeypatch, tmp_pat
     project = workspace / "ikariam"
     dagster_workspace = workspace / ".dagster" / "dev-workspace"
     raw_root = workspace / "data" / "raw" / "ikariam"
-    building_costs = project / "data" / "building_costs.csv"
+    building_costs = raw_root / "building_costs.csv"
 
     (project / "src" / "ikariam").mkdir(parents=True)
     (project / "pyproject.toml").write_text("[project]\nname = \"ikariam\"\n", encoding="utf-8")
@@ -94,3 +95,18 @@ def test_default_config_resolves_from_dagster_dev_workspace(monkeypatch, tmp_pat
     assert cfg.raw_data_dir == raw_root
     assert cfg.countries == ("DE",)
     assert cfg.building_costs_path == building_costs
+
+
+def test_building_costs_path_can_be_overridden(monkeypatch, tmp_path: Path):
+    raw_root = tmp_path / "data" / "raw" / "ikariam"
+    override = tmp_path / "inputs" / "building_costs.csv"
+    (raw_root / "de" / "2013-04-25").mkdir(parents=True)
+
+    monkeypatch.setenv("IKARIAM_RAW_DATA_DIR", str(raw_root))
+    monkeypatch.setenv("IKARIAM_BUILDING_COSTS_PATH", str(override))
+    monkeypatch.delenv("IKARIAM_COUNTRIES", raising=False)
+
+    cfg = load_config()
+
+    assert cfg.raw_data_dir == raw_root
+    assert cfg.building_costs_path == override

@@ -1,4 +1,4 @@
-"""File-level I/O for the one CSV input still read from disk.
+"""File-level I/O for CSV inputs stored alongside the raw extracts.
 
 Outputs are written to LanceDB / DuckDB — see `io_lance.py` and
 `build_views.py`. No CSV writes remain in v2.
