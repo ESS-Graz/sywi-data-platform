@@ -4,10 +4,11 @@ This directory contains the pipeline for processing Ikariam data snapshots into 
 
 ## Primary Tables
 
-All raw snapshot data is aggregated and cleaned into three primary snapshot tables stored in LanceDB:
+All raw snapshot data is aggregated and cleaned into four primary snapshot tables stored in LanceDB:
 - `player_snapshot` (grain: one row per player per snapshot)
 - `city_snapshot` (grain: one row per city per snapshot)
 - `island_snapshot` (grain: one row per island per snapshot)
+- `donation_analytics_player_island_snapshot` (grain: one row per player, island, and snapshot)
 
 ## Data Denormalization & Normalization Philosophy
 
@@ -21,6 +22,13 @@ To support rich analytical workloads, we deliberately choose a denormalized desi
 > [!NOTE]
 > **Note on Data Duplication**:
 > Duplication in this dataset is **intentional** to make analysis easier. Users of the dataset should keep this in mind when querying: always aggregate player-island level metrics using `MAX` rather than `SUM` when rolling up to the player or server levels.
+
+## Donation Analytics
+
+Donation ratios and island peer averages live in `donation_analytics_player_island_snapshot`.
+This table keeps donation facts, denominators, intensity ratios, composition shares, and island peer averages at their natural player-island-snapshot grain.
+
+It intentionally does not reproduce legacy database-wide broadcast constants such as total server donations copied onto every row. Those values are report summaries, not row-level analytics.
 
 ## Reconstructing Dropped Summary and Latest Tables
 

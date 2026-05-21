@@ -10,6 +10,9 @@ from ikariam.pipeline.io_raw import load_raw_table
 from ikariam.pipeline.transforms.building_costs import join_building_costs
 from ikariam.pipeline.transforms.city_agg import aggregate_to_player_island
 from ikariam.pipeline.transforms.city_metrics import compute_city_metrics
+from ikariam.pipeline.transforms.donation_analytics import (
+    build_donation_analytics_player_island_snapshot,
+)
 from ikariam.pipeline.transforms.donations import process_donations
 from ikariam.pipeline.transforms.final_datasets import (
     build_city_snapshot_table,
@@ -229,6 +232,22 @@ def donations_by_island_snapshot(
 
 
 @asset(group_name=PUBLIC_GROUP)
+def donation_analytics_player_island_snapshot(
+    context: AssetExecutionContext,
+    donation_enriched: pl.DataFrame,
+    city_player_island: pl.DataFrame,
+    player_enriched: pl.DataFrame,
+) -> pl.DataFrame:
+    df = build_donation_analytics_player_island_snapshot(
+        donation_enriched,
+        city_player_island,
+        player_enriched,
+    )
+    _add_df_metadata(context, df)
+    return df
+
+
+@asset(group_name=PUBLIC_GROUP)
 def player_snapshot(
     context: AssetExecutionContext,
     player_enriched: pl.DataFrame,
@@ -298,11 +317,13 @@ def ikariam_lancedb(
     player_snapshot: pl.DataFrame,
     city_snapshot: pl.DataFrame,
     island_snapshot: pl.DataFrame,
+    donation_analytics_player_island_snapshot: pl.DataFrame,
 ) -> MaterializeResult:
     public_tables = {
         "player_snapshot": player_snapshot,
         "city_snapshot": city_snapshot,
         "island_snapshot": island_snapshot,
+        "donation_analytics_player_island_snapshot": donation_analytics_player_island_snapshot,
     }
     raw_tables = partition_raw_tables_by_country(
         {
@@ -346,6 +367,7 @@ ALL_ASSETS = [
     city_by_island_snapshot,
     donations_by_player_snapshot,
     donations_by_island_snapshot,
+    donation_analytics_player_island_snapshot,
     player_snapshot,
     city_snapshot,
     island_snapshot,

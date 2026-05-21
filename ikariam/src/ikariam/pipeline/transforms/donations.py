@@ -6,8 +6,8 @@ NOT with extra snapshot_date/country columns. The commented-out versions
 in the R source are pre-audit and must not be used.
 
 Donation types: 1=Wonder, 2=Sawmill (Saegewerk), 3=Luxury mine (Luxusminen).
-Wonder donations split by island's tradegood (matching ~33.3%, non-matching
-each ~22.2%; null tradegood → uniform 25% per resource).
+Wonder donations are allocated evenly across the three luxury goods not
+produced on the island (matching island tradegood gets 0).
 Cities with no donations get synthetic zero rows inserted.
 """
 
@@ -89,15 +89,16 @@ def process_donations(
     ).unique(subset=["island_id", "snapshot_id"])
     agg = agg.join(island_tradegood, on=["island_id", "snapshot_id"], how="left")
 
-    # Split wonder donations by resource. Legacy SQL name: Q22. For each
-    # resource R, SQL sets
+    # Split wonder donations by resource. Ikariam allows miracle/wonder
+    # donations using resources that are not produced on the island. Since the
+    # raw data has only a type=Wonder total, not the exact luxury good paid,
+    # these fields are an equal allocation across eligible luxury goods.
+    #
+    # Legacy SQL name: Q22. For each resource R, SQL sets
     # `Don_Wonder_Anteil_R = Don_Wonder_Ges * (1 - 0.666667) ≈ 0.333`
     # ONLY when `island.tradegood != R`; the matching-tradegood resource and
     # any null-tradegood row stay at 0. Total = 3 × 0.333 = 1.0 across the
-    # three non-matching resources. (V1 R inverted this — matching got
-    # 0.333, non-matching got 0.222 each. Neither of the individual share
-    # columns is in our final outputs, so the per-resource totals are
-    # internal-only, but this matches SQL for alignment.)
+    # three non-matching resources.
     f = cfg.wonder_split_factor
     non_match_share = 1.0 - f  # ≈ 0.333
 
