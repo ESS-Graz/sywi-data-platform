@@ -4,7 +4,6 @@ import polars as pl
 from dagster import AssetExecutionContext, MaterializeResult, MetadataValue, asset
 
 from ikariam.pipeline.config import get_config
-from ikariam.pipeline.derived import DerivedTables, build_derived
 from ikariam.pipeline.io_files import read_building_costs
 from ikariam.pipeline.io_lance import partition_raw_tables_by_country, write_lancedb
 from ikariam.pipeline.io_raw import load_raw_table
@@ -13,8 +12,8 @@ from ikariam.pipeline.transforms.city_agg import aggregate_to_player_island
 from ikariam.pipeline.transforms.city_metrics import compute_city_metrics
 from ikariam.pipeline.transforms.donations import process_donations
 from ikariam.pipeline.transforms.final_datasets import (
+    build_city_snapshot_table,
     build_island_snapshot_table,
-    build_player_island_snapshot_table,
     build_player_snapshot_table,
 )
 from ikariam.pipeline.transforms.higher_agg import (
@@ -246,14 +245,23 @@ def player_snapshot(
 
 
 @asset(group_name=PUBLIC_GROUP)
-def player_island_snapshot(
+def city_snapshot(
     context: AssetExecutionContext,
-    city_player_island: pl.DataFrame,
+    city_enriched: pl.DataFrame,
     donation_enriched: pl.DataFrame,
     island_enriched: pl.DataFrame,
 ) -> pl.DataFrame:
-    df = build_player_island_snapshot_table(
-        city_player_island,
+    """One row per (city, snapshot). Contains detailed city-level metrics
+    and corresponding player-island donations and island metadata.
+
+    NOTE ON NORMALIZATION:
+    This table is intentionally denormalized. Player-island level donations and island metadata
+    (e.g. wonder level) are duplicated across multiple cities owned by the same player on the same island.
+    This duplication is intentional for the sake of ease of downstream analysis (avoiding complex multi-table joins).
+    When aggregating player-island level columns (such as donations), use MAX instead of SUM to avoid double-counting.
+    """
+    df = build_city_snapshot_table(
+        city_enriched,
         donation_enriched,
         island_enriched,
     )
@@ -277,101 +285,24 @@ def island_snapshot(
     return df
 
 
-@asset(group_name=PUBLIC_GROUP)
-def derived_tables(
-    player_snapshot: pl.DataFrame,
-    player_island_snapshot: pl.DataFrame,
-    island_snapshot: pl.DataFrame,
-) -> DerivedTables:
-    return build_derived(player_snapshot, player_island_snapshot, island_snapshot)
 
-
-@asset(group_name=PUBLIC_GROUP)
-def player_latest(
-    context: AssetExecutionContext,
-    derived_tables: DerivedTables,
-) -> pl.DataFrame:
-    df = derived_tables.player_latest
-    _add_df_metadata(context, df)
-    return df
-
-
-@asset(group_name=PUBLIC_GROUP)
-def player_island_latest(
-    context: AssetExecutionContext,
-    derived_tables: DerivedTables,
-) -> pl.DataFrame:
-    df = derived_tables.player_island_latest
-    _add_df_metadata(context, df)
-    return df
-
-
-@asset(group_name=PUBLIC_GROUP)
-def island_latest(
-    context: AssetExecutionContext,
-    derived_tables: DerivedTables,
-) -> pl.DataFrame:
-    df = derived_tables.island_latest
-    _add_df_metadata(context, df)
-    return df
-
-
-@asset(group_name=PUBLIC_GROUP)
-def player_summary(
-    context: AssetExecutionContext,
-    derived_tables: DerivedTables,
-) -> pl.DataFrame:
-    df = derived_tables.player_summary
-    _add_df_metadata(context, df)
-    return df
-
-
-@asset(group_name=PUBLIC_GROUP)
-def player_island_summary(
-    context: AssetExecutionContext,
-    derived_tables: DerivedTables,
-) -> pl.DataFrame:
-    df = derived_tables.player_island_summary
-    _add_df_metadata(context, df)
-    return df
-
-
-@asset(group_name=PUBLIC_GROUP)
-def island_summary(
-    context: AssetExecutionContext,
-    derived_tables: DerivedTables,
-) -> pl.DataFrame:
-    df = derived_tables.island_summary
-    _add_df_metadata(context, df)
-    return df
 
 
 @asset(group_name=EXPORT_GROUP)
 def ikariam_lancedb(
+    context: AssetExecutionContext,
     raw_avatar: pl.DataFrame,
     raw_city: pl.DataFrame,
     raw_donation: pl.DataFrame,
     raw_island: pl.DataFrame,
     player_snapshot: pl.DataFrame,
-    player_island_snapshot: pl.DataFrame,
+    city_snapshot: pl.DataFrame,
     island_snapshot: pl.DataFrame,
-    player_latest: pl.DataFrame,
-    player_island_latest: pl.DataFrame,
-    island_latest: pl.DataFrame,
-    player_summary: pl.DataFrame,
-    player_island_summary: pl.DataFrame,
-    island_summary: pl.DataFrame,
 ) -> MaterializeResult:
     public_tables = {
         "player_snapshot": player_snapshot,
-        "player_island_snapshot": player_island_snapshot,
+        "city_snapshot": city_snapshot,
         "island_snapshot": island_snapshot,
-        "player_latest": player_latest,
-        "player_island_latest": player_island_latest,
-        "island_latest": island_latest,
-        "player_summary": player_summary,
-        "player_island_summary": player_island_summary,
-        "island_summary": island_summary,
     }
     raw_tables = partition_raw_tables_by_country(
         {
@@ -416,14 +347,7 @@ ALL_ASSETS = [
     donations_by_player_snapshot,
     donations_by_island_snapshot,
     player_snapshot,
-    player_island_snapshot,
+    city_snapshot,
     island_snapshot,
-    derived_tables,
-    player_latest,
-    player_island_latest,
-    island_latest,
-    player_summary,
-    player_island_summary,
-    island_summary,
     ikariam_lancedb,
 ]

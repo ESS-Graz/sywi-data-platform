@@ -53,41 +53,61 @@ PLAYER_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
 }
 
 
-PLAYER_ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
+CITY_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
+    "city_id": {"description": "SHA1 of the city", "unit": "id"},
     "player_id": {"description": "SHA1 of the player account", "unit": "id"},
     "island_id": {"description": "SHA1 of the island", "unit": "id"},
     "snapshot_id": {"description": "Snapshot identifier", "unit": "id"},
     "snapshot_date": {"description": "Date the snapshot was taken", "unit": "date"},
     "country_code": {"description": "Server country code", "unit": "iso2"},
-    "player_city_count_on_island": {
-        "description": "Cities this player has on this island",
-        "unit": "count",
-    },
-    "population_total": {"description": "Population in this player's cities here", "unit": "count"},
-    "wood_in_buildings": {"description": "Wood invested in buildings here", "unit": "wood"},
-    "resources_in_buildings_total": {"description": "All resources invested here", "unit": "sum"},
-    "building_resource_score": {
-        "description": "Legacy Baumeister_Highscore resource total here",
-        "unit": "sum",
-    },
-    "resources_stored_total": {"description": "Stored resources here", "unit": "sum"},
-    "resources_in_buildings_and_storage_total": {
-        "description": "Built plus stored resources here",
-        "unit": "sum",
-    },
-    "building_levels_total": {"description": "Sum of building levels here", "unit": "sum_levels"},
-    "wonder_donations_total": {"description": "Wonder donations here", "unit": "gold"},
-    "sawmill_donations_total": {"description": "Sawmill donations here", "unit": "gold"},
-    "luxury_mine_donations_total": {"description": "Luxury mine donations here", "unit": "gold"},
-    "donations_total": {"description": "All donations here", "unit": "gold"},
-    "wonder_type_id": {"description": "Wonder type id on this island", "unit": "enum"},
-    "luxury_resource_type": {
-        "description": "Luxury resource type: 1=wine, 2=marble, 3=crystal, 4=sulfur",
-        "unit": "enum",
-    },
-    "luxury_mine_level": {"description": "Luxury mine level", "unit": "level"},
-    "sawmill_level": {"description": "Sawmill level", "unit": "level"},
-    "island_city_count": {"description": "Raw total cities on the island", "unit": "count"},
+    "is_capital": {"description": "True if the city is the player's capital", "unit": "boolean"},
+    "town_hall_level": {"description": "Town hall level", "unit": "level"},
+    "citizens": {"description": "Number of free citizens in the city", "unit": "count"},
+    "scientists": {"description": "Number of scientists in the academy", "unit": "count"},
+    "priests": {"description": "Number of priests in the temple", "unit": "count"},
+    "resource_workers": {"description": "Number of workers in the sawmill", "unit": "count"},
+    "tradegood_workers": {"description": "Number of workers in the luxury mine", "unit": "count"},
+    "population_total": {"description": "Total population in the city", "unit": "count"},
+    "wood_in_buildings": {"description": "Wood invested in buildings in this city", "unit": "wood"},
+    "crystal_in_buildings": {"description": "Crystal invested in buildings in this city", "unit": "crystal"},
+    "marble_in_buildings": {"description": "Marble invested in buildings in this city", "unit": "marble"},
+    "sulfur_in_buildings": {"description": "Sulfur invested in buildings in this city", "unit": "sulfur"},
+    "wine_in_buildings": {"description": "Wine invested in buildings in this city", "unit": "wine"},
+    "resources_in_buildings_total": {"description": "Total resources invested in buildings in this city", "unit": "sum"},
+    "building_resource_score": {"description": "Baumeister score of this city", "unit": "sum"},
+    "wood_stored": {"description": "Stored wood in the city", "unit": "wood"},
+    "crystal_stored": {"description": "Stored crystal in the city", "unit": "crystal"},
+    "marble_stored": {"description": "Stored marble in the city", "unit": "marble"},
+    "sulfur_stored": {"description": "Stored sulfur in the city", "unit": "sulfur"},
+    "wine_stored": {"description": "Stored wine in the city", "unit": "wine"},
+    "resources_stored_total": {"description": "Total stored resources in this city", "unit": "sum"},
+    "wood_total": {"description": "Total wood (built + stored) in this city", "unit": "wood"},
+    "crystal_total": {"description": "Total crystal (built + stored) in this city", "unit": "crystal"},
+    "marble_total": {"description": "Total marble (built + stored) in this city", "unit": "marble"},
+    "sulfur_total": {"description": "Total sulfur (built + stored) in this city", "unit": "sulfur"},
+    "wine_total": {"description": "Total wine (built + stored) in this city", "unit": "wine"},
+    "resources_in_buildings_and_storage_total": {"description": "Total resources in buildings and storage in this city", "unit": "sum"},
+    "building_levels_total": {"description": "Sum of all building levels in this city", "unit": "sum_levels"},
+    "wonder_donations_total": {"description": "Wonder donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
+    "sawmill_donations_total": {"description": "Sawmill donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
+    "luxury_mine_donations_total": {"description": "Luxury mine donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
+    "donations_total": {"description": "All donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
+    "wonder_type_id": {"description": "Wonder type id on this island (intentionally duplicated across cities on this island)", "unit": "enum"},
+    "wonder_level": {"description": "Wonder level (intentionally duplicated across cities on this island)", "unit": "level"},
+    "wonder_belief": {"description": "Wonder belief points (intentionally duplicated across cities on this island)", "unit": "points"},
+    "luxury_resource_type": {"description": "Luxury resource type: 1=wine, 2=marble, 3=crystal, 4=sulfur (intentionally duplicated across cities on this island)", "unit": "enum"},
+    "luxury_mine_level": {"description": "Luxury mine level (intentionally duplicated across cities on this island)", "unit": "level"},
+    "sawmill_level": {"description": "Sawmill level (intentionally duplicated across cities on this island)", "unit": "level"},
+    "island_city_count": {"description": "Raw total cities on the island (intentionally duplicated across cities on this island)", "unit": "count"},
+    "sawmill_donated_cumulative": {"description": "Cumulative sawmill donations on the island (intentionally duplicated across cities on this island)", "unit": "gold"},
+    "luxury_mine_donated_cumulative": {"description": "Cumulative luxury mine donations on the island (intentionally duplicated across cities on this island)", "unit": "gold"},
+    "wonder_donated_cumulative": {"description": "Cumulative wonder donations on the island (intentionally duplicated across cities on this island)", "unit": "gold"},
+    "sawmill_next_level_cost": {"description": "Cost for next sawmill level (intentionally duplicated across cities on this island)", "unit": "gold"},
+    "luxury_mine_next_level_cost": {"description": "Cost for next luxury mine level (intentionally duplicated across cities on this island)", "unit": "gold"},
+    "wonder_next_level_cost": {"description": "Cost for next wonder level (intentionally duplicated across cities on this island)", "unit": "gold"},
+    "sawmill_next_level_remaining_cost": {"description": "Remaining donations needed for next sawmill level (intentionally duplicated across cities on this island)", "unit": "gold"},
+    "luxury_mine_next_level_remaining_cost": {"description": "Remaining donations needed for next luxury mine level (intentionally duplicated across cities on this island)", "unit": "gold"},
+    "wonder_next_level_remaining_cost": {"description": "Remaining donations needed for next wonder level (intentionally duplicated across cities on this island)", "unit": "gold"},
 }
 
 
@@ -164,28 +184,6 @@ ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
 }
 
 
-SUMMARY_DOCS: dict[str, dict[str, str]] = {
-    "player_id": {"description": "SHA1 of the player account", "unit": "id"},
-    "island_id": {"description": "SHA1 of the island", "unit": "id"},
-    "country_code": {"description": "Server country code", "unit": "iso2"},
-    "snapshots_observed_count": {
-        "description": "Distinct snapshots where the entity appears",
-        "unit": "count",
-    },
-    "first_snapshot_date": {"description": "Earliest snapshot date", "unit": "date"},
-    "last_snapshot_date": {"description": "Latest snapshot date", "unit": "date"},
-    "observation_span_days": {
-        "description": "Days between first and last observed snapshots",
-        "unit": "days",
-    },
-    "registered_at_unix": {"description": "Player registration time", "unit": "unix_seconds"},
-    "player_city_observation_count": {
-        "description": "Sum of player_city_count_on_island across snapshots",
-        "unit": "count",
-    },
-}
-
-
 RAW_COMMON_DOCS: dict[str, dict[str, str]] = {
     "snapshot_id": {"description": "Snapshot identifier, e.g. de_1311_14", "unit": "id"},
     "snapshot_date": {"description": "Date the snapshot was taken", "unit": "date"},
@@ -195,14 +193,8 @@ RAW_COMMON_DOCS: dict[str, dict[str, str]] = {
 
 TABLE_DOCS: dict[str, dict[str, dict[str, str]]] = {
     "player_snapshot": PLAYER_SNAPSHOT_DOCS,
-    "player_island_snapshot": PLAYER_ISLAND_SNAPSHOT_DOCS,
+    "city_snapshot": CITY_SNAPSHOT_DOCS,
     "island_snapshot": ISLAND_SNAPSHOT_DOCS,
-    "player_latest": PLAYER_SNAPSHOT_DOCS,
-    "player_island_latest": PLAYER_ISLAND_SNAPSHOT_DOCS,
-    "island_latest": ISLAND_SNAPSHOT_DOCS,
-    "player_summary": SUMMARY_DOCS,
-    "player_island_summary": SUMMARY_DOCS,
-    "island_summary": SUMMARY_DOCS,
     "raw_avatar": RAW_COMMON_DOCS,
     "raw_city": RAW_COMMON_DOCS,
     "raw_donation": RAW_COMMON_DOCS,
@@ -215,23 +207,16 @@ TABLE_DESCRIPTIONS: dict[str, str] = {
         "One row per (player, snapshot). Aggregates each player's city and "
         "donation state for a weekly snapshot."
     ),
-    "player_island_snapshot": (
-        "One row per (player, island, snapshot) where the player had at least "
-        "one city on that island."
+    "city_snapshot": (
+        "One row per (city, snapshot). Contains detailed city-level metrics "
+        "and corresponding player-island donations and island metadata. Note: "
+        "duplication of player-island level donations and island metadata is intentional "
+        "for the sake of ease of downstream analysis (avoiding complex multi-table joins)."
     ),
     "island_snapshot": (
         "One row per (island, snapshot). Includes island state, upgrade "
         "metrics, and player/city/donation aggregates."
     ),
-    "player_latest": "Latest player_snapshot row per player.",
-    "player_island_latest": (
-        "Latest player_island_snapshot row per player-island pair, with island "
-        "metadata from the island's latest snapshot."
-    ),
-    "island_latest": "Latest island_snapshot row per island.",
-    "player_summary": "Cross-snapshot summary per player.",
-    "player_island_summary": "Cross-snapshot summary per player-island pair.",
-    "island_summary": "Cross-snapshot summary per island.",
     "raw_avatar": "Raw avatar parquet rows, exported as one LanceDB table per country.",
     "raw_city": "Raw city parquet rows, exported as one LanceDB table per country.",
     "raw_donation": "Raw donation parquet rows, exported as one LanceDB table per country.",

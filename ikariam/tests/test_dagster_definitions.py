@@ -12,4 +12,7 @@ def test_definitions_load_without_ducklake_env(monkeypatch):
     }
     assert ("raw_avatar",) in asset_keys
     assert ("player_snapshot",) in asset_keys
+    assert ("city_snapshot",) in asset_keys
+    assert ("player_island_snapshot",) not in asset_keys
+    assert ("player_latest",) not in asset_keys
     assert ("ikariam_lancedb",) in asset_keys

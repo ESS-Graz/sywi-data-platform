@@ -20,7 +20,7 @@ import polars as pl
 @dataclass(frozen=True, slots=True)
 class PanelTables:
     player_snapshot: pl.DataFrame
-    player_island_snapshot: pl.DataFrame
+    city_snapshot: pl.DataFrame
     island_snapshot: pl.DataFrame
 
 
@@ -91,29 +91,49 @@ def build_player_snapshot_table(
     return base.sort(["player_id", "snapshot_date", "snapshot_id"])
 
 
-def build_player_island_snapshot_table(
-    city_player_island: pl.DataFrame,
+def build_city_snapshot_table(
+    city_enriched: pl.DataFrame,
     donation_enriched: pl.DataFrame,
     island_enriched: pl.DataFrame,
 ) -> pl.DataFrame:
-    """One row per (player_id, island_id, snapshot_id).
+    """One row per (city_id, snapshot_id).
 
-    The natural grain of `city_player_island` — every week where the player
-    had at least one city on that island. Joined with the matching donation
-    enrichment (synthetic zeros already folded in) and island metadata.
+    The natural grain of `city_enriched` — every week where a city existed.
+    Joined with the matching donation enrichment and island metadata.
     """
-    base = city_player_island.rename({"owner_id": "player_id"}).select(
-        "player_id",
+    base = city_enriched.select(
+        pl.col("id").alias("city_id"),
+        pl.col("owner_id").alias("player_id"),
         "island_id",
         "snapshot_id",
         "snapshot_date",
         pl.col("country").alias("country_code"),
-        pl.col("cities_on_island").alias("player_city_count_on_island"),
+        pl.col("capital").cast(pl.Boolean).alias("is_capital"),
+        pl.col("Rathauslev").alias("town_hall_level"),
+        "citizens",
+        "scientists",
+        "priests",
+        "resource_workers",
+        "tradegood_workers",
         pl.col("Buerger_Ges").alias("population_total"),
         pl.col("Holz_verbaut").alias("wood_in_buildings"),
+        pl.col("Kristall_verbaut").alias("crystal_in_buildings"),
+        pl.col("Stein_verbaut").alias("marble_in_buildings"),
+        pl.col("Schwefel_verbaut").alias("sulfur_in_buildings"),
+        pl.col("Wein_verbaut").alias("wine_in_buildings"),
         pl.col("Res_Ges_verbaut").alias("resources_in_buildings_total"),
         pl.col("Baumeister_Highscore").alias("building_resource_score"),
+        pl.col("Holz_lagernd").alias("wood_stored"),
+        pl.col("Kristall_lagernd").alias("crystal_stored"),
+        pl.col("Stein_lagernd").alias("marble_stored"),
+        pl.col("Schwefel_lagernd").alias("sulfur_stored"),
+        pl.col("Wein_lagernd").alias("wine_stored"),
         pl.col("Res_Ges_lagernd").alias("resources_stored_total"),
+        pl.col("Holz_Ges_verb_lag").alias("wood_total"),
+        pl.col("Kristall_Ges_verb_lag").alias("crystal_total"),
+        pl.col("Stein_Ges_verb_lag").alias("marble_total"),
+        pl.col("Schwefel_Ges_verb_lag").alias("sulfur_total"),
+        pl.col("Wein_Ges_verb_lag").alias("wine_total"),
         pl.col("Res_Ges_verb_lag").alias("resources_in_buildings_and_storage_total"),
         pl.col("Geblev").alias("building_levels_total"),
     )
@@ -133,10 +153,21 @@ def build_player_island_snapshot_table(
         pl.col("id").alias("island_id"),
         "snapshot_id",
         "wonder_type_id",
+        "wonder_level",
+        "wonder_belief",
         pl.col("tradegood").alias("luxury_resource_type"),
         pl.col("tradegood_level").alias("luxury_mine_level"),
         pl.col("resource_level").alias("sawmill_level"),
         pl.col("city_count").alias("island_city_count"),
+        pl.col("resource_donated").alias("sawmill_donated_cumulative"),
+        pl.col("tradegood_donated").alias("luxury_mine_donated_cumulative"),
+        pl.col("wonder_donated").alias("wonder_donated_cumulative"),
+        pl.col("cost_Nextlev_resource").alias("sawmill_next_level_cost"),
+        pl.col("cost_Nextlev_tradegood").alias("luxury_mine_next_level_cost"),
+        pl.col("cost_Nextlev_wonder").alias("wonder_next_level_cost"),
+        pl.col("Sub_Noetig_nextlev_resource").alias("sawmill_next_level_remaining_cost"),
+        pl.col("Sub_Noetig_nextlev_tradegood").alias("luxury_mine_next_level_remaining_cost"),
+        pl.col("Sub_Noetig_nextlev_wonder").alias("wonder_next_level_remaining_cost"),
     )
     base = base.join(isl, on=["island_id", "snapshot_id"], how="left")
 
@@ -147,7 +178,7 @@ def build_player_island_snapshot_table(
             if dt.is_numeric()
         ]
     )
-    return base.sort(["player_id", "island_id", "snapshot_date", "snapshot_id"])
+    return base.sort(["city_id", "snapshot_date", "snapshot_id"])
 
 
 def build_island_snapshot_table(
@@ -230,7 +261,7 @@ def build_island_snapshot_table(
 
 def build_panels(
     player_enriched: pl.DataFrame,
-    city_player_island: pl.DataFrame,
+    city_enriched: pl.DataFrame,
     city3_av: pl.DataFrame,
     city4_i: pl.DataFrame,
     donation_enriched: pl.DataFrame,
@@ -242,8 +273,8 @@ def build_panels(
         player_snapshot=build_player_snapshot_table(
             player_enriched, city3_av, donation3_av
         ),
-        player_island_snapshot=build_player_island_snapshot_table(
-            city_player_island, donation_enriched, island_enriched
+        city_snapshot=build_city_snapshot_table(
+            city_enriched, donation_enriched, island_enriched
         ),
         island_snapshot=build_island_snapshot_table(island_enriched, city4_i, donation4_i),
     )
