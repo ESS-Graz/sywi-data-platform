@@ -58,14 +58,14 @@ def generate_compose(projects: list[str]) -> dict:
     """Generate production Docker Compose configuration."""
     services = {
         "postgresql": {
-            "image": "postgres:16",
+            "image": "dhi.io/postgres:18-alpine3.22",
             "environment": {
                 "POSTGRES_USER": "dagster_user",
                 "POSTGRES_PASSWORD": "dagster_password",
                 "POSTGRES_DB": "dagster_db",
             },
             "volumes": [
-                "dagster_pgdata:/var/lib/postgresql/data",
+                "dagster_pgdata_pg18:/var/lib/postgresql",
                 "./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro",
             ],
             "networks": ["sywi-dagster"],
@@ -162,7 +162,7 @@ def generate_compose(projects: list[str]) -> dict:
     return {
         "services": services,
         "networks": {"sywi-dagster": {"name": "sywi-dagster", "driver": "bridge"}},
-        "volumes": {"dagster_pgdata": None},
+        "volumes": {"dagster_pgdata_pg18": None},
     }
 
 
