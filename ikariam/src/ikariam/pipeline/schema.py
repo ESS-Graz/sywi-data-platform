@@ -126,7 +126,16 @@ ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     },
     "luxury_mine_level": {"description": "Luxury mine level", "unit": "level"},
     "sawmill_level": {"description": "Sawmill level", "unit": "level"},
-    "raw_city_count": {"description": "Raw city_count field from the island table", "unit": "count"},
+    "raw_city_count": {
+        "description": (
+            "Raw city_count field from the island source table. This may differ "
+            "from city_count because the source can count cities whose owner is "
+            "missing from the player snapshot, and in rare rows the island source "
+            "underreports compared with raw city rows. Do not use this field for "
+            "calculations unless the analysis explicitly needs the raw source value."
+        ),
+        "unit": "count",
+    },
     "sawmill_donated_cumulative": {"description": "Cumulative sawmill donations", "unit": "gold"},
     "luxury_mine_donated_cumulative": {
         "description": "Cumulative luxury mine donations",
@@ -152,7 +161,14 @@ ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
         "unit": "gold",
     },
     "player_count": {"description": "Distinct players on this island", "unit": "count"},
-    "city_count": {"description": "Computed total cities on this island", "unit": "count"},
+    "city_count": {
+        "description": (
+            "Computed total cities on this island from city records that survive "
+            "the canonical city/player joins. Usually matches raw_city_count, but "
+            "can be lower when raw city owners are absent from player_snapshot."
+        ),
+        "unit": "count",
+    },
     "population_total": {"description": "Total population across players", "unit": "count"},
     "wood_in_buildings": {"description": "Wood invested by all players", "unit": "wood"},
     "resources_in_buildings_total": {

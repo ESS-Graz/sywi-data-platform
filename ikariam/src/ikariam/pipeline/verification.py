@@ -109,9 +109,9 @@ CITY_SUM_MAP: dict[str, str] = {
     "c_Kristall_lagernd": "crystal_stored",
     "c_Kristall_verbaut": "crystal_in_buildings",
     "c_Rathauslev": "town_hall_level",
-    "c_Res_Ges_lagernd": "resources_stored_total",
-    "c_Res_Ges_verb_lag": "resources_in_buildings_and_storage_total",
-    "c_Res_Ges_verbaut": "resources_in_buildings_total",
+    "c_Res_Ges_lagernd": "resources_stored_total", # Das darf nicht total heißen
+    "c_Res_Ges_verb_lag": "resources_in_buildings_and_storage_total", # Das darf total heißen -> ressources_total
+    "c_Res_Ges_verbaut": "resources_in_buildings_total", # Das darf nicht total heißen
     "c_Schwefel_Ges_verb_lag": "sulfur_total",
     "c_Schwefel_lagernd": "sulfur_stored",
     "c_Schwefel_verbaut": "sulfur_in_buildings",
@@ -198,12 +198,6 @@ AVATAR_MAP: dict[str, str] = {
     "a_Spieldauer": "account_age_days",
     "a_formOfGovernment": "government_form",
 }
-
-# SQL Q22 uses 66.6667% as the portion not assigned to each eligible resource;
-# the verifier uses `1 - factor` to allocate one third of a wonder donation to
-# each luxury good that is not produced on the island. The raw data does not
-# identify the exact luxury good paid, so this is an allocation convention.
-LEGACY_WONDER_SPLIT_FACTOR = 0.666667
 
 # These two columns are documented, expected unmapped outputs. They are
 # database-wide donation totals/counts copied onto every legacy row, not
@@ -329,6 +323,7 @@ def read_lancedb_frames(lancedb_path: Path, country: str = "DE") -> dict[str, pl
     required = {
         "player_snapshot",
         "city_snapshot",
+        "donation_analytics_player_island_snapshot",
         "island_snapshot",
         f"raw_avatar_{suffix}",
         f"raw_city_{suffix}",
@@ -348,7 +343,12 @@ def read_lancedb_frames(lancedb_path: Path, country: str = "DE") -> dict[str, pl
         raise ValueError(f"Missing required LanceDB tables: {', '.join(missing)}")
 
     country_code = country.upper()
-    for name in ("player_snapshot", "city_snapshot", "island_snapshot"):
+    for name in (
+        "player_snapshot",
+        "city_snapshot",
+        "donation_analytics_player_island_snapshot",
+        "island_snapshot",
+    ):
         if "country_code" in frames[name].columns:
             frames[name] = frames[name].filter(pl.col("country_code") == country_code)
 
@@ -385,6 +385,7 @@ def build_legacy_views(frames: dict[str, pl.DataFrame], country: str = "DE") -> 
     raw_city = frames[f"raw_city_{suffix}"]
     player = frames["player_snapshot"]
     city = frames["city_snapshot"]
+    donation_analytics = frames["donation_analytics_player_island_snapshot"]
     island = frames["island_snapshot"]
 
     teilnahme = build_teilnahme_av(raw_avatar)
@@ -394,13 +395,14 @@ def build_legacy_views(frames: dict[str, pl.DataFrame], country: str = "DE") -> 
     # runs the final city/donation/island transforms on the single current SQL
     # working table. For the DE gold CSVs that working table is de_1311_14, i.e.
     # the latest snapshot in LanceDB.
-    latest_player = latest_snapshot(player)
+    latest_player = latest_snapshot(player) # This should be get snapshot by id
     latest_city = latest_snapshot(city)
+    latest_donation_analytics = latest_snapshot(donation_analytics)
     latest_island = latest_snapshot(island)
     avatar = build_legacy_avatar(latest_player)
     city2 = build_legacy_city2(latest_city)
     island_level_per_avatar = build_island_level_per_avatar(latest_island, latest_player)
-    donation2 = build_legacy_donation2(latest_city, city2, latest_player, latest_island)
+    donation2 = build_legacy_donation2(latest_donation_analytics, city2, latest_player)
 
     city_player = aggregate_city2(city2, ("player_id",)).rename({"player_id": "t_id"})
     city_player_island = aggregate_city2(city2, ("player_id", "island_id")).rename(
@@ -409,7 +411,7 @@ def build_legacy_views(frames: dict[str, pl.DataFrame], country: str = "DE") -> 
     city_island = aggregate_city2(city2, ("island_id",)).rename({"island_id": "i_id"})
 
     donations_player = build_legacy_donation3av(donation2, city2, latest_player).rename(
-        {"player_id": "t_id"}
+        {"player_id": "t_id"} 
     )
     donations_player_island = donation2.rename(
         {"player_id": "m_owner_id", "island_id": "m_island_id"}
@@ -593,14 +595,18 @@ def build_island_level_per_avatar(island: pl.DataFrame, player: pl.DataFrame) ->
 
     player_count = player.select("player_id").unique().height if not player.is_empty() else 0
     denominator = float(player_count) if player_count else 1.0
+    sum_columns = {
+        output_column: f"_sum_{source_column}"
+        for output_column, source_column in ISLAND_LEVEL_PER_AVATAR_MAP.items()
+    }
     totals = island.select(
         *[
-            pl.col(source_column).sum().alias(output_column)
+            pl.col(source_column).sum().alias(sum_columns[output_column])
             for output_column, source_column in ISLAND_LEVEL_PER_AVATAR_MAP.items()
         ]
     ).row(0, named=True)
     values = {
-        output_column: float(totals[output_column]) / denominator
+        output_column: float(totals[sum_columns[output_column]]) / denominator
         for output_column in ISLAND_LEVEL_PER_AVATAR_MAP
     }
     return island.select(pl.col("island_id").alias("i_id")).with_columns(
@@ -608,6 +614,7 @@ def build_island_level_per_avatar(island: pl.DataFrame, player: pl.DataFrame) ->
     )
 
 
+# TODO: This should not just return the latest snapshot but should take an ID for which snapshot to return
 def latest_snapshot(df: pl.DataFrame) -> pl.DataFrame:
     """Return the current SQL working-table snapshot used by final gold outputs.
 
@@ -725,35 +732,59 @@ def aggregate_city2(city2: pl.DataFrame, keys: tuple[str, ...]) -> pl.DataFrame:
 
 
 def build_legacy_donation2(
-    city: pl.DataFrame,
+    donation_analytics: pl.DataFrame,
     city2: pl.DataFrame,
     player: pl.DataFrame,
-    island: pl.DataFrame,
 ) -> pl.DataFrame:
-    """Project legacy `donation2` row-level analytics from current facts.
+    """Project legacy `donation2` row-level analytics from public donation facts.
 
     This projection is intentionally verifier-only. The canonical pipeline
     exposes these as clean analytics fields in
     `donation_analytics_player_island_snapshot`; the SQL-gold verifier maps the
-    old `d_*` names here so reviewers can audit the legacy CSV columns.
+    old `d_*` names from that public table so reviewers can audit the legacy
+    CSV columns from the new LanceDB output data.
 
     Database-wide broadcast constants such as `d_Anz_Don_per_DB` and
     `d_Don_pro_DB` are intentionally not reproduced.
     """
-    if city.is_empty() or city2.is_empty():
+    if donation_analytics.is_empty() or city2.is_empty():
         return pl.DataFrame(schema={"player_id": pl.Utf8, "island_id": pl.Utf8})
 
-    donation_columns = (
+    required = {
+        "player_id",
+        "island_id",
         "wonder_donations_total",
         "sawmill_donations_total",
         "luxury_mine_donations_total",
         "donations_total",
-    )
-    per_player_island = city.group_by(["player_id", "island_id", "snapshot_id"]).agg(
-        [pl.col(col).max().alias(col) for col in donation_columns]
-    )
-    per_player_island = per_player_island.group_by(["player_id", "island_id"]).agg(
-        [pl.col(col).sum().alias(col) for col in donation_columns]
+        "wonder_wine_donations_allocated",
+        "wonder_marble_donations_allocated",
+        "wonder_crystal_donations_allocated",
+        "wonder_sulfur_donations_allocated",
+        "luxury_mine_wine_donations",
+        "luxury_mine_marble_donations",
+        "luxury_mine_crystal_donations",
+        "luxury_mine_sulfur_donations",
+    }
+    missing = sorted(required.difference(donation_analytics.columns))
+    if missing:
+        raise ValueError(f"Missing required donation analytics columns: {missing}")
+
+    per_player_island = donation_analytics.select(
+        "player_id",
+        "island_id",
+        "wonder_donations_total",
+        "sawmill_donations_total",
+        "luxury_mine_donations_total",
+        "donations_total",
+        "wonder_wine_donations_allocated",
+        "wonder_marble_donations_allocated",
+        "wonder_crystal_donations_allocated",
+        "wonder_sulfur_donations_allocated",
+        "luxury_mine_wine_donations",
+        "luxury_mine_marble_donations",
+        "luxury_mine_crystal_donations",
+        "luxury_mine_sulfur_donations",
     )
 
     city_context = city2.select(
@@ -777,16 +808,10 @@ def build_legacy_donation2(
         pl.col("player_id"),
         pl.col("account_age_days").alias("a_Spieldauer"),
     )
-    island_context = island.select(
-        pl.col("island_id"),
-        pl.col("luxury_resource_type").cast(pl.Int64, strict=False).alias("i_tradegood"),
-    )
 
-    non_match_share = 1.0 - LEGACY_WONDER_SPLIT_FACTOR
     result = (
         per_player_island.join(city_context, on=["player_id", "island_id"], how="left")
         .join(player_context, on="player_id", how="left")
-        .join(island_context, on="island_id", how="left")
         .with_columns(
             pl.col("player_id").alias("d_avatar_id"),
             pl.col("island_id").alias("d_island_id"),
@@ -798,25 +823,20 @@ def build_legacy_donation2(
             (pl.col("sawmill_donations_total") + pl.col("luxury_mine_donations_total")).alias(
                 "d_DonH_Ges"
             ),
+            pl.col("wonder_wine_donations_allocated").alias("d_Don_Wonder_Anteil_Wein"),
+            pl.col("wonder_marble_donations_allocated").alias("d_Don_Wonder_Anteil_Stein"),
+            pl.col("wonder_crystal_donations_allocated").alias(
+                "d_Don_Wonder_Anteil_Kristall"
+            ),
+            pl.col("wonder_sulfur_donations_allocated").alias(
+                "d_Don_Wonder_Anteil_Schwefel"
+            ),
+            pl.col("luxury_mine_wine_donations").alias("d_DonH_fuer_Weinreben"),
+            pl.col("luxury_mine_marble_donations").alias("d_DonH_fuer_Steinbruch"),
+            pl.col("luxury_mine_crystal_donations").alias("d_DonH_fuer_Kristallmine"),
+            pl.col("luxury_mine_sulfur_donations").alias("d_DonH_fuer_Schwefelgrube"),
         )
     )
-
-    for code, column in (
-        (1, "Wein"),
-        (2, "Stein"),
-        (3, "Kristall"),
-        (4, "Schwefel"),
-    ):
-        result = result.with_columns(
-            pl.when(pl.col("i_tradegood") == code)
-            .then(pl.col("d_DonH_Luxusminen_Ges"))
-            .otherwise(0.0)
-            .alias(f"d_DonH_fuer_{_legacy_luxury_resource_name(column)}"),
-            pl.when(pl.col("i_tradegood").is_not_null() & (pl.col("i_tradegood") != code))
-            .then(pl.col("d_Don_Wonder_Ges") * non_match_share)
-            .otherwise(0.0)
-            .alias(f"d_Don_Wonder_Anteil_{column}"),
-        )
 
     result = result.with_columns(
         (pl.col("c_Holz_Ges_verb_lag") + pl.col("d_DonH_Ges")).alias(
@@ -916,10 +936,22 @@ def build_legacy_donation2(
         *[pl.lit(0.0).alias(column) for column in LEGACY_DONATION_AVG_MAP]
     )
     internal_columns = [
-        "i_tradegood",
         "a_Spieldauer",
         *[col for col in result.columns if col.startswith("c_")],
-        *donation_columns,
+        *[
+            "wonder_donations_total",
+            "sawmill_donations_total",
+            "luxury_mine_donations_total",
+            "donations_total",
+            "wonder_wine_donations_allocated",
+            "wonder_marble_donations_allocated",
+            "wonder_crystal_donations_allocated",
+            "wonder_sulfur_donations_allocated",
+            "luxury_mine_wine_donations",
+            "luxury_mine_marble_donations",
+            "luxury_mine_crystal_donations",
+            "luxury_mine_sulfur_donations",
+        ],
     ]
     return result.drop([col for col in internal_columns if col in result.columns])
 
@@ -1105,15 +1137,6 @@ def build_legacy_donation4isl(
         ).alias("d_Avg_Wein_Ges_verb_lag_don"),
     )
     return _drop_auxiliary_columns(result)
-
-
-def _legacy_luxury_resource_name(resource: str) -> str:
-    return {
-        "Wein": "Weinreben",
-        "Stein": "Steinbruch",
-        "Kristall": "Kristallmine",
-        "Schwefel": "Schwefelgrube",
-    }[resource]
 
 
 def _legacy_positive_ratio(numerator: str, denominator: str) -> pl.Expr:
@@ -1431,6 +1454,7 @@ def write_markdown_report(
             "",
             "This report verifies only columns with explicit mappings from the legacy SQL output to the current Dagster/LanceDB model.",
             "Columns that are selected ambiguously by the legacy SQL or have no current public-table equivalent are reported as unmapped rather than treated as verified.",
+            "Legacy donation columns are reconstructed from `donation_analytics_player_island_snapshot`, not from donation fields duplicated on `city_snapshot`.",
             "The only expected donation columns that remain unmapped are `d_Anz_Don_per_DB` and `d_Don_pro_DB`. They are database-wide donation broadcast constants copied onto every legacy row, not row-level analytics in the canonical LanceDB model.",
             f"Mismatch CSVs contain at most {MAX_MISMATCH_SAMPLES} sample rows per output; the summary table shows the full mismatch count.",
             "",

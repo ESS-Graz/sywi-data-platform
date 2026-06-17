@@ -12,6 +12,7 @@ from ikariam.pipeline.verification import (
     aggregate_donations,
     aggregate_city2,
     build_island_level_per_avatar,
+    build_legacy_views,
     build_legacy_donation2,
     build_legacy_donation3av,
     build_legacy_donation4isl,
@@ -254,15 +255,23 @@ def test_build_island_level_per_avatar_uses_global_sql_denominator():
 
 
 def test_build_legacy_donation2_projects_row_level_donation_analytics():
-    city = pl.DataFrame(
+    donation_analytics = pl.DataFrame(
         {
-            "player_id": ["p1", "p1"],
-            "island_id": ["i1", "i1"],
-            "snapshot_id": ["s1", "s1"],
-            "wonder_donations_total": [30.0, 30.0],
-            "sawmill_donations_total": [40.0, 40.0],
-            "luxury_mine_donations_total": [30.0, 30.0],
-            "donations_total": [100.0, 100.0],
+            "player_id": ["p1"],
+            "island_id": ["i1"],
+            "snapshot_id": ["s1"],
+            "wonder_donations_total": [30.0],
+            "sawmill_donations_total": [40.0],
+            "luxury_mine_donations_total": [30.0],
+            "donations_total": [100.0],
+            "wonder_wine_donations_allocated": [10.0],
+            "wonder_marble_donations_allocated": [0.0],
+            "wonder_crystal_donations_allocated": [10.0],
+            "wonder_sulfur_donations_allocated": [10.0],
+            "luxury_mine_wine_donations": [0.0],
+            "luxury_mine_marble_donations": [30.0],
+            "luxury_mine_crystal_donations": [0.0],
+            "luxury_mine_sulfur_donations": [0.0],
         }
     )
     city2 = pl.DataFrame(
@@ -285,9 +294,8 @@ def test_build_legacy_donation2_projects_row_level_donation_analytics():
         }
     )
     player = pl.DataFrame({"player_id": ["p1"], "account_age_days": [10.0]})
-    island = pl.DataFrame({"island_id": ["i1"], "luxury_resource_type": [2]})
 
-    result = build_legacy_donation2(city, city2, player, island)
+    result = build_legacy_donation2(donation_analytics, city2, player)
     row = result.row(0, named=True)
 
     assert row["d_avatar_id"] == "p1"
@@ -297,12 +305,135 @@ def test_build_legacy_donation2_projects_row_level_donation_analytics():
     assert row["d_DonH_fuer_Steinbruch"] == 30.0
     assert row["d_DonH_fuer_Weinreben"] == 0.0
     assert row["d_Don_Wonder_Anteil_Stein"] == 0.0
-    assert row["d_Don_Wonder_Anteil_Kristall"] == pytest.approx(30.0 * 0.333333)
+    assert row["d_Don_Wonder_Anteil_Kristall"] == 10.0
     assert row["d_Holz_Ges_verb_lag_don"] == 170.0
     assert row["d_Don_pro_City"] == 100.0
     assert row["d_Don_pro_Resource_Worker"] == 10.0
     assert row["d_Don_pro_Tradegood_Worker"] == 10.0
     assert row["d_Don_Wonder_Ges_pro_Spieldauer"] == 3.0
+
+
+def test_build_legacy_views_uses_public_donation_analytics_not_city_snapshot_donations():
+    raw_avatar = pl.DataFrame({"id": ["p1"], "snapshot_id": ["s1"], "country": ["DE"]})
+    raw_city = pl.DataFrame(
+        {"id": ["c1"], "owner_id": ["p1"], "island_id": ["i1"], "snapshot_id": ["s1"]}
+    )
+    player = pl.DataFrame(
+        {
+            "player_id": ["p1"],
+            "snapshot_id": ["s1"],
+            "snapshot_date": ["2026-01-01"],
+            "country_code": ["DE"],
+            "gold": [10.0],
+            "registered_at_unix": [1000],
+            "registered_at": [datetime(1970, 1, 1, 0, 16, 40)],
+            "account_age_days": [10.0],
+            "government_form": [0],
+        }
+    )
+    city = pl.DataFrame(
+        {
+            "city_id": ["c1"],
+            "player_id": ["p1"],
+            "island_id": ["i1"],
+            "snapshot_id": ["s1"],
+            "snapshot_date": ["2026-01-01"],
+            "country_code": ["DE"],
+            "is_capital": [True],
+            "town_hall_level": [5],
+            "citizens": [1.0],
+            "resource_workers": [4.0],
+            "tradegood_workers": [3.0],
+            "scientists": [0.0],
+            "priests": [2.0],
+            "population_total": [10.0],
+            "wood_stored": [100.0],
+            "wine_stored": [20.0],
+            "marble_stored": [30.0],
+            "crystal_stored": [40.0],
+            "sulfur_stored": [50.0],
+            "building_resource_score": [1.0],
+            "building_levels_total": [20.0],
+            "wood_total": [100.0],
+            "wood_in_buildings": [0.0],
+            "crystal_total": [40.0],
+            "crystal_in_buildings": [0.0],
+            "resources_stored_total": [240.0],
+            "resources_in_buildings_and_storage_total": [240.0],
+            "resources_in_buildings_total": [0.0],
+            "sulfur_total": [50.0],
+            "sulfur_in_buildings": [0.0],
+            "marble_total": [30.0],
+            "marble_in_buildings": [0.0],
+            "wine_total": [20.0],
+            "wine_in_buildings": [0.0],
+            # These disagree with donation analytics on purpose.
+            "wonder_donations_total": [999.0],
+            "sawmill_donations_total": [999.0],
+            "luxury_mine_donations_total": [999.0],
+            "donations_total": [999.0],
+        }
+    )
+    donation_analytics = pl.DataFrame(
+        {
+            "player_id": ["p1"],
+            "island_id": ["i1"],
+            "snapshot_id": ["s1"],
+            "snapshot_date": ["2026-01-01"],
+            "country_code": ["DE"],
+            "wonder_donations_total": [30.0],
+            "sawmill_donations_total": [40.0],
+            "luxury_mine_donations_total": [30.0],
+            "donations_total": [100.0],
+            "wonder_wine_donations_allocated": [10.0],
+            "wonder_marble_donations_allocated": [0.0],
+            "wonder_crystal_donations_allocated": [10.0],
+            "wonder_sulfur_donations_allocated": [10.0],
+            "luxury_mine_wine_donations": [0.0],
+            "luxury_mine_marble_donations": [30.0],
+            "luxury_mine_crystal_donations": [0.0],
+            "luxury_mine_sulfur_donations": [0.0],
+        }
+    )
+    island = pl.DataFrame(
+        {
+            "island_id": ["i1"],
+            "snapshot_id": ["s1"],
+            "snapshot_date": ["2026-01-01"],
+            "country_code": ["DE"],
+            "luxury_resource_type": [2],
+            "sawmill_donated_cumulative": [0.0],
+            "sawmill_level": [1],
+            "luxury_mine_donated_cumulative": [0.0],
+            "luxury_mine_level": [1],
+            "wonder_belief": [0.0],
+            "wonder_donated_cumulative": [0.0],
+            "wonder_level": [1],
+            "sawmill_next_level_cost": [100.0],
+            "luxury_mine_next_level_cost": [100.0],
+            "wonder_next_level_cost": [100.0],
+            "sawmill_next_level_remaining_cost": [100.0],
+            "luxury_mine_next_level_remaining_cost": [100.0],
+            "wonder_next_level_remaining_cost": [100.0],
+        }
+    )
+
+    views = build_legacy_views(
+        {
+            "raw_avatar_de": raw_avatar,
+            "raw_city_de": raw_city,
+            "player_snapshot": player,
+            "city_snapshot": city,
+            "donation_analytics_player_island_snapshot": donation_analytics,
+            "island_snapshot": island,
+        }
+    )
+    row = views["AVI_DS"].row(0, named=True)
+
+    assert row["d_Don_Ges"] == 100.0
+    assert row["d_Don_Saegewerk_Ges"] == 40.0
+    assert row["d_Don_Wonder_Ges"] == 30.0
+    assert row["d_DonH_Luxusminen_Ges"] == 30.0
 
 
 def test_build_legacy_donation3av_projects_player_level_sql_rollup():
