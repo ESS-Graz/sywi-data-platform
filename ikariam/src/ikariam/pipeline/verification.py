@@ -28,7 +28,9 @@ from typing import Any
 
 import polars as pl
 
-from .utils import safe_divide, safe_percent
+from .config import get_config
+from .schema import TABLE_DOCS
+from .utils import duration_adjustment_expr, safe_divide, safe_percent
 
 
 GOLD_OUTPUTS: tuple[str, ...] = (
@@ -38,9 +40,30 @@ GOLD_OUTPUTS: tuple[str, ...] = (
     "AVI_DS",
     "I_DS",
 )
+PUBLIC_LANCEDB_TABLES: tuple[str, ...] = (
+    "player_snapshot",
+    "city_snapshot",
+    "island_snapshot",
+    "donation_analytics_player_island_snapshot",
+)
+PUBLIC_TABLE_KEY_COLUMNS: dict[str, tuple[str, ...]] = {
+    "player_snapshot": ("player_id", "snapshot_id"),
+    "city_snapshot": ("city_id", "snapshot_id"),
+    "island_snapshot": ("island_id", "snapshot_id"),
+    "donation_analytics_player_island_snapshot": ("player_id", "island_id", "snapshot_id"),
+}
+PUBLIC_DOCUMENTED_COLUMNS: dict[str, tuple[str, ...]] = {
+    table: tuple(TABLE_DOCS[table]) for table in PUBLIC_LANCEDB_TABLES
+}
 
 DEFAULT_TOLERANCE = 1e-6
 MAX_MISMATCH_SAMPLES = 10_000
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotKey:
+    snapshot_date: str
+    snapshot_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +100,46 @@ class ComparisonResult:
             or self.gold_only_keys > 0
             or self.actual_only_keys > 0
             or self.mismatch_count > 0
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PublicTableResult:
+    name: str
+    key_columns: tuple[str, ...]
+    rows: int
+    documented_columns: tuple[str, ...]
+    actual_columns: tuple[str, ...]
+    verified_columns: tuple[str, ...]
+    missing_documented_columns: tuple[str, ...]
+    undocumented_columns: tuple[str, ...]
+    unverified_columns: tuple[str, ...]
+    duplicate_keys: int
+    formula_result: ComparisonResult
+    coverage_path: Path
+
+    @property
+    def failed(self) -> bool:
+        return (
+            bool(self.missing_documented_columns)
+            or bool(self.undocumented_columns)
+            or bool(self.unverified_columns)
+            or self.duplicate_keys > 0
+            or self.formula_result.failed
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationRunResult:
+    snapshot: SnapshotKey
+    snapshot_selection: str
+    legacy_results: tuple[ComparisonResult, ...]
+    public_table_results: tuple[PublicTableResult, ...]
+
+    @property
+    def failed(self) -> bool:
+        return any(result.failed for result in self.legacy_results) or any(
+            result.failed for result in self.public_table_results
         )
 
 
@@ -303,6 +366,53 @@ LEGACY_DONATION_SHARE_MAP: dict[str, tuple[str, str]] = {
     "d_Proz_Don_von_Res_Ges": ("d_Don_Ges", "d_Res_Ges_verb_lag_don"),
 }
 
+PUBLIC_INVARIANT_COLUMNS: dict[str, tuple[str, ...]] = {
+    table: tuple(
+        dict.fromkeys(
+            [
+                *PUBLIC_TABLE_KEY_COLUMNS[table],
+                "snapshot_date",
+                "country_code",
+            ]
+        )
+    )
+    for table in PUBLIC_LANCEDB_TABLES
+}
+
+# Columns whose values are verified through the legacy-gold reconstruction path.
+# The public coverage layer still reports them explicitly so new public columns do
+# not become silently unverified.
+PUBLIC_LEGACY_GOLD_COLUMNS: dict[str, tuple[str, ...]] = {
+    "player_snapshot": (),
+    "city_snapshot": (
+        "wood_in_buildings",
+        "crystal_in_buildings",
+        "marble_in_buildings",
+        "sulfur_in_buildings",
+        "wine_in_buildings",
+        "building_resource_score",
+    ),
+    "island_snapshot": (
+        "sawmill_next_level_cost",
+        "luxury_mine_next_level_cost",
+        "wonder_next_level_cost",
+    ),
+    "donation_analytics_player_island_snapshot": (
+        "donations_total",
+        "sawmill_donations_total",
+        "luxury_mine_donations_total",
+        "wonder_donations_total",
+        "wonder_wine_donations_allocated",
+        "wonder_marble_donations_allocated",
+        "wonder_crystal_donations_allocated",
+        "wonder_sulfur_donations_allocated",
+        "luxury_mine_wine_donations",
+        "luxury_mine_marble_donations",
+        "luxury_mine_crystal_donations",
+        "luxury_mine_sulfur_donations",
+    ),
+}
+
 
 def read_lancedb_frames(lancedb_path: Path, country: str = "DE") -> dict[str, pl.DataFrame]:
     """Read current public/raw LanceDB tables needed for SQL-gold comparison.
@@ -321,34 +431,27 @@ def read_lancedb_frames(lancedb_path: Path, country: str = "DE") -> dict[str, pl
     db = lancedb.connect(lancedb_path)
     suffix = country.lower()
     required = {
-        "player_snapshot",
-        "city_snapshot",
-        "donation_analytics_player_island_snapshot",
-        "island_snapshot",
+        *PUBLIC_LANCEDB_TABLES,
         f"raw_avatar_{suffix}",
         f"raw_city_{suffix}",
         f"raw_island_{suffix}",
     }
 
     frames: dict[str, pl.DataFrame] = {}
-    missing: list[str] = []
+    failures: dict[str, str] = {}
     for name in sorted(required):
         try:
             table = db.open_table(name)
-        except Exception:
-            missing.append(name)
+        except Exception as exc:
+            failures[name] = str(exc)
             continue
         frames[name] = pl.from_arrow(table.to_arrow())
-    if missing:
-        raise ValueError(f"Missing required LanceDB tables: {', '.join(missing)}")
+    if failures:
+        detail = "; ".join(f"{name}: {reason}" for name, reason in sorted(failures.items()))
+        raise ValueError(f"Unable to open required LanceDB tables: {detail}")
 
     country_code = country.upper()
-    for name in (
-        "player_snapshot",
-        "city_snapshot",
-        "donation_analytics_player_island_snapshot",
-        "island_snapshot",
-    ):
+    for name in PUBLIC_LANCEDB_TABLES:
         if "country_code" in frames[name].columns:
             frames[name] = frames[name].filter(pl.col("country_code") == country_code)
 
@@ -371,7 +474,11 @@ def read_gold_frames(gold_dir: Path) -> dict[str, pl.DataFrame]:
     return frames
 
 
-def build_legacy_views(frames: dict[str, pl.DataFrame], country: str = "DE") -> dict[str, pl.DataFrame]:
+def build_legacy_views(
+    frames: dict[str, pl.DataFrame],
+    country: str = "DE",
+    snapshot: SnapshotKey | None = None,
+) -> dict[str, pl.DataFrame]:
     """Build SQL-shaped outputs from LanceDB frames.
 
     This is the verifier's main compatibility layer. It does not ask whether
@@ -395,10 +502,11 @@ def build_legacy_views(frames: dict[str, pl.DataFrame], country: str = "DE") -> 
     # runs the final city/donation/island transforms on the single current SQL
     # working table. For the DE gold CSVs that working table is de_1311_14, i.e.
     # the latest snapshot in LanceDB.
-    latest_player = latest_snapshot(player) # This should be get snapshot by id
-    latest_city = latest_snapshot(city)
-    latest_donation_analytics = latest_snapshot(donation_analytics)
-    latest_island = latest_snapshot(island)
+    verification_snapshot = snapshot or resolve_verification_snapshot(frames)
+    latest_player = filter_to_snapshot(player, verification_snapshot)
+    latest_city = filter_to_snapshot(city, verification_snapshot)
+    latest_donation_analytics = filter_to_snapshot(donation_analytics, verification_snapshot)
+    latest_island = filter_to_snapshot(island, verification_snapshot)
     avatar = build_legacy_avatar(latest_player)
     city2 = build_legacy_city2(latest_city)
     island_level_per_avatar = build_island_level_per_avatar(latest_island, latest_player)
@@ -411,7 +519,7 @@ def build_legacy_views(frames: dict[str, pl.DataFrame], country: str = "DE") -> 
     city_island = aggregate_city2(city2, ("island_id",)).rename({"island_id": "i_id"})
 
     donations_player = build_legacy_donation3av(donation2, city2, latest_player).rename(
-        {"player_id": "t_id"} 
+        {"player_id": "t_id"}
     )
     donations_player_island = donation2.rename(
         {"player_id": "m_owner_id", "island_id": "m_island_id"}
@@ -614,7 +722,91 @@ def build_island_level_per_avatar(island: pl.DataFrame, player: pl.DataFrame) ->
     )
 
 
-# TODO: This should not just return the latest snapshot but should take an ID for which snapshot to return
+def resolve_verification_snapshot(
+    frames: dict[str, pl.DataFrame],
+    snapshot_id: str | None = None,
+) -> SnapshotKey:
+    """Return the requested or latest public snapshot shared by all public tables."""
+    key_by_table = {
+        table: snapshot_key_for_id(frames[table], table, snapshot_id)
+        if snapshot_id is not None
+        else latest_snapshot_key(frames[table], table)
+        for table in PUBLIC_LANCEDB_TABLES
+    }
+    distinct = set(key_by_table.values())
+    if len(distinct) != 1:
+        details = ", ".join(
+            f"{table}=({key.snapshot_date}, {key.snapshot_id})"
+            for table, key in sorted(key_by_table.items())
+        )
+        if snapshot_id is not None:
+            raise ValueError(
+                f"Requested snapshot_id {snapshot_id!r} has inconsistent public-table dates: {details}"
+            )
+        raise ValueError(f"Public LanceDB latest snapshots disagree: {details}")
+    return next(iter(distinct))
+
+
+def latest_snapshot_key(df: pl.DataFrame, table_name: str) -> SnapshotKey:
+    """Return the latest `(snapshot_date, snapshot_id)` key in one public table."""
+    required = {"snapshot_date", "snapshot_id"}
+    missing = sorted(required.difference(df.columns))
+    if missing:
+        raise ValueError(f"{table_name} is missing snapshot columns: {missing}")
+    if df.is_empty():
+        raise ValueError(f"{table_name} is empty after country filtering")
+
+    candidates = (
+        df.select(
+            pl.col("snapshot_date").cast(pl.Utf8).alias("snapshot_date"),
+            pl.col("snapshot_id").cast(pl.Utf8).alias("snapshot_id"),
+        )
+        .unique()
+        .sort(["snapshot_date", "snapshot_id"])
+    )
+    row = candidates.tail(1).row(0, named=True)
+    return SnapshotKey(snapshot_date=row["snapshot_date"], snapshot_id=row["snapshot_id"])
+
+
+def snapshot_key_for_id(df: pl.DataFrame, table_name: str, snapshot_id: str) -> SnapshotKey:
+    """Return the `(snapshot_date, snapshot_id)` key for an explicit public snapshot."""
+    required = {"snapshot_date", "snapshot_id"}
+    missing = sorted(required.difference(df.columns))
+    if missing:
+        raise ValueError(f"{table_name} is missing snapshot columns: {missing}")
+    if df.is_empty():
+        raise ValueError(f"{table_name} is empty after country filtering")
+
+    candidates = (
+        df.filter(pl.col("snapshot_id").cast(pl.Utf8) == snapshot_id)
+        .select(
+            pl.col("snapshot_date").cast(pl.Utf8).alias("snapshot_date"),
+            pl.col("snapshot_id").cast(pl.Utf8).alias("snapshot_id"),
+        )
+        .unique()
+        .sort(["snapshot_date", "snapshot_id"])
+    )
+    if candidates.is_empty():
+        raise ValueError(f"{table_name} does not contain requested snapshot_id {snapshot_id!r}")
+    if candidates.height > 1:
+        dates = ", ".join(candidates.get_column("snapshot_date").to_list())
+        raise ValueError(
+            f"{table_name} contains requested snapshot_id {snapshot_id!r} with multiple dates: {dates}"
+        )
+    row = candidates.row(0, named=True)
+    return SnapshotKey(snapshot_date=row["snapshot_date"], snapshot_id=row["snapshot_id"])
+
+
+def filter_to_snapshot(df: pl.DataFrame, snapshot: SnapshotKey) -> pl.DataFrame:
+    """Filter a snapshot table to the exact verification snapshot key."""
+    if "snapshot_id" not in df.columns or "snapshot_date" not in df.columns:
+        raise ValueError(f"Cannot filter snapshot frame without snapshot_id/date: {df.columns}")
+    return df.filter(
+        (pl.col("snapshot_id").cast(pl.Utf8) == snapshot.snapshot_id)
+        & (pl.col("snapshot_date").cast(pl.Utf8) == snapshot.snapshot_date)
+    )
+
+
 def latest_snapshot(df: pl.DataFrame) -> pl.DataFrame:
     """Return the current SQL working-table snapshot used by final gold outputs.
 
@@ -1332,6 +1524,643 @@ def compare_outputs(
     ]
 
 
+def verify_public_tables(
+    frames: dict[str, pl.DataFrame],
+    detail_dir: Path,
+    snapshot: SnapshotKey,
+    country: str = "DE",
+) -> list[PublicTableResult]:
+    """Verify every documented public LanceDB column for one snapshot."""
+    detail_dir.mkdir(parents=True, exist_ok=True)
+    public_frames = {
+        table: filter_to_snapshot(frames[table], snapshot) for table in PUBLIC_LANCEDB_TABLES
+    }
+    expected_frames = {
+        "player_snapshot": build_expected_player_snapshot_checks(
+            public_frames, frames, snapshot, country
+        ),
+        "city_snapshot": build_expected_city_snapshot_checks(public_frames, frames, snapshot, country),
+        "island_snapshot": build_expected_island_snapshot_checks(
+            public_frames, frames, snapshot, country
+        ),
+        "donation_analytics_player_island_snapshot": build_expected_donation_analytics_checks(
+            public_frames
+        ),
+    }
+    return [
+        verify_public_table(
+            name=table,
+            actual=public_frames[table],
+            expected=expected_frames[table],
+            detail_dir=detail_dir,
+        )
+        for table in PUBLIC_LANCEDB_TABLES
+    ]
+
+
+def verify_public_table(
+    name: str,
+    actual: pl.DataFrame,
+    expected: pl.DataFrame,
+    detail_dir: Path,
+) -> PublicTableResult:
+    """Compare one public table against formula/source expectations."""
+    key_columns = PUBLIC_TABLE_KEY_COLUMNS[name]
+    documented_columns = PUBLIC_DOCUMENTED_COLUMNS[name]
+    actual_columns = tuple(actual.columns)
+    missing_documented = tuple(col for col in documented_columns if col not in actual.columns)
+    undocumented = tuple(col for col in actual.columns if col not in documented_columns)
+    formula_columns = tuple(col for col in expected.columns if col not in key_columns)
+    actual_compare_columns = [
+        *key_columns,
+        *(col for col in formula_columns if col in actual.columns),
+    ]
+    formula_result = compare_frame(
+        expected,
+        actual.select(actual_compare_columns),
+        ComparisonSpec(f"public_{name}", key_columns),
+        detail_dir,
+    )
+    duplicate_keys = actual.height - actual.select(key_columns).unique().height
+
+    coverage = build_public_column_coverage(name, formula_columns)
+    verified_columns = tuple(col for col in documented_columns if col in coverage)
+    unverified = tuple(col for col in documented_columns if col not in coverage)
+    coverage_path = detail_dir / f"public_{name}_coverage.csv"
+    write_public_coverage_csv(
+        path=coverage_path,
+        documented_columns=documented_columns,
+        coverage=coverage,
+        missing_documented=missing_documented,
+        undocumented=undocumented,
+    )
+
+    return PublicTableResult(
+        name=name,
+        key_columns=key_columns,
+        rows=actual.height,
+        documented_columns=documented_columns,
+        actual_columns=actual_columns,
+        verified_columns=verified_columns,
+        missing_documented_columns=missing_documented,
+        undocumented_columns=undocumented,
+        unverified_columns=unverified,
+        duplicate_keys=duplicate_keys,
+        formula_result=formula_result,
+        coverage_path=coverage_path,
+    )
+
+
+def build_public_column_coverage(
+    table_name: str,
+    formula_columns: tuple[str, ...],
+) -> dict[str, str]:
+    coverage: dict[str, str] = {}
+    for column in PUBLIC_INVARIANT_COLUMNS[table_name]:
+        coverage[column] = "invariant"
+    for column in PUBLIC_LEGACY_GOLD_COLUMNS[table_name]:
+        coverage.setdefault(column, "legacy_gold")
+    for column in formula_columns:
+        coverage[column] = "formula"
+    return coverage
+
+
+def build_expected_player_snapshot_checks(
+    public_frames: dict[str, pl.DataFrame],
+    all_frames: dict[str, pl.DataFrame],
+    snapshot: SnapshotKey,
+    country: str,
+) -> pl.DataFrame:
+    suffix = country.lower()
+    raw_avatar = filter_to_snapshot(all_frames[f"raw_avatar_{suffix}"], snapshot)
+    cfg = get_config()
+    spieldauer_seconds = (pl.lit(cfg.reference_timestamp) - pl.col("registered_at_unix")).cast(
+        pl.Float64
+    )
+    raw_player = raw_avatar.select(
+        pl.col("id").alias("player_id"),
+        "snapshot_id",
+        pl.col("registration_time").cast(pl.Int64, strict=False).alias("registered_at_unix"),
+        "gold",
+        "research_points",
+        pl.col("formOfGovernment").alias("government_form"),
+        "gender",
+    ).with_columns(
+        (spieldauer_seconds / 86400.0).alias("account_age_days"),
+        pl.from_epoch(pl.col("registered_at_unix"), time_unit="s")
+        .dt.strftime("%Y-%m-%dT%H:%M:%S.000000")
+        .alias("registered_at"),
+        duration_adjustment_expr(spieldauer_seconds, cfg.duration_adjustments).alias(
+            "account_age_adjustment_factor"
+        ),
+    )
+    player = public_frames["player_snapshot"].select("player_id", "snapshot_id").join(
+        raw_player, on=["player_id", "snapshot_id"], how="left"
+    )
+
+    city = public_frames["city_snapshot"]
+    city_agg = city.group_by(["player_id", "snapshot_id"]).agg(
+        pl.col("island_id").n_unique().alias("island_count"),
+        pl.len().alias("city_count"),
+        pl.col("population_total").sum().alias("population_total"),
+        pl.col("wood_in_buildings").sum().alias("wood_in_buildings"),
+        pl.col("crystal_in_buildings").sum().alias("crystal_in_buildings"),
+        pl.col("marble_in_buildings").sum().alias("marble_in_buildings"),
+        pl.col("sulfur_in_buildings").sum().alias("sulfur_in_buildings"),
+        pl.col("wine_in_buildings").sum().alias("wine_in_buildings"),
+        pl.col("resources_in_buildings_total").sum().alias("resources_in_buildings_total"),
+        pl.col("building_resource_score").sum().alias("building_resource_score"),
+        pl.col("resources_stored_total").sum().alias("resources_stored_total"),
+        pl.col("resources_in_buildings_and_storage_total")
+        .sum()
+        .alias("resources_in_buildings_and_storage_total"),
+        pl.col("building_levels_total").sum().alias("building_levels_total"),
+    )
+
+    donation = public_frames["donation_analytics_player_island_snapshot"]
+    donation_agg = donation.group_by(["player_id", "snapshot_id"]).agg(
+        pl.col("wonder_donations_total").sum().alias("wonder_donations_total"),
+        pl.col("sawmill_donations_total").sum().alias("sawmill_donations_total"),
+        pl.col("luxury_mine_donations_total").sum().alias("luxury_mine_donations_total"),
+        pl.col("donations_total").sum().alias("donations_total"),
+        (pl.col("wonder_donations_total") + pl.col("luxury_mine_donations_total"))
+        .sum()
+        .alias("wonder_and_luxury_mine_donations_total"),
+    )
+
+    result = player.join(city_agg, on=["player_id", "snapshot_id"], how="left").join(
+        donation_agg, on=["player_id", "snapshot_id"], how="left"
+    )
+    return fill_numeric_nulls(result).select(
+        "player_id",
+        "snapshot_id",
+        *[
+            col
+            for col in PUBLIC_DOCUMENTED_COLUMNS["player_snapshot"]
+            if col not in {"player_id", "snapshot_id", "snapshot_date", "country_code"}
+        ],
+    )
+
+
+def build_expected_city_snapshot_checks(
+    public_frames: dict[str, pl.DataFrame],
+    all_frames: dict[str, pl.DataFrame],
+    snapshot: SnapshotKey,
+    country: str,
+) -> pl.DataFrame:
+    suffix = country.lower()
+    raw_city = filter_to_snapshot(all_frames[f"raw_city_{suffix}"], snapshot)
+    city = public_frames["city_snapshot"]
+    donation = public_frames["donation_analytics_player_island_snapshot"]
+    island = public_frames["island_snapshot"]
+
+    level_columns = [f"p{i}l" for i in range(1, 18)]
+    raw_base = raw_city.select(
+        pl.col("id").alias("city_id"),
+        pl.col("owner_id").alias("player_id"),
+        "island_id",
+        "snapshot_id",
+        pl.col("capital").cast(pl.Boolean).alias("is_capital"),
+        pl.col("level").alias("town_hall_level"),
+        pl.col("citizens").cast(pl.Float64, strict=False).fill_null(0.0).alias("citizens"),
+        pl.col("scientists").cast(pl.Float64, strict=False).fill_null(0.0).alias("scientists"),
+        pl.col("priests").cast(pl.Float64, strict=False).fill_null(0.0).alias("priests"),
+        pl.col("resource_workers")
+        .cast(pl.Float64, strict=False)
+        .fill_null(0.0)
+        .alias("resource_workers"),
+        pl.col("tradegood_workers")
+        .cast(pl.Float64, strict=False)
+        .fill_null(0.0)
+        .alias("tradegood_workers"),
+        pl.col("resource").cast(pl.Float64, strict=False).fill_null(0.0).alias("wood_stored"),
+        pl.col("tradegood1").cast(pl.Float64, strict=False).fill_null(0.0).alias("wine_stored"),
+        pl.col("tradegood2").cast(pl.Float64, strict=False).fill_null(0.0).alias("marble_stored"),
+        pl.col("tradegood3").cast(pl.Float64, strict=False).fill_null(0.0).alias("crystal_stored"),
+        pl.col("tradegood4").cast(pl.Float64, strict=False).fill_null(0.0).alias("sulfur_stored"),
+        pl.sum_horizontal([pl.col(column) for column in level_columns]).alias(
+            "building_levels_total"
+        ),
+    ).with_columns(
+        (
+            pl.col("citizens")
+            + pl.col("scientists")
+            + pl.col("priests")
+            + pl.col("resource_workers")
+            + pl.col("tradegood_workers")
+        ).alias("population_total"),
+        (
+            pl.col("wood_stored")
+            + pl.col("crystal_stored")
+            + pl.col("marble_stored")
+            + pl.col("sulfur_stored")
+            + pl.col("wine_stored")
+        ).alias("resources_stored_total"),
+    )
+    base = city.select("city_id", "snapshot_id").join(
+        raw_base, on=["city_id", "snapshot_id"], how="left"
+    )
+
+    building = city.select(
+        "city_id",
+        "snapshot_id",
+        "wood_in_buildings",
+        "crystal_in_buildings",
+        "marble_in_buildings",
+        "sulfur_in_buildings",
+        "wine_in_buildings",
+    )
+    donation_fields = donation.select(
+        "player_id",
+        "island_id",
+        "snapshot_id",
+        "wonder_donations_total",
+        "sawmill_donations_total",
+        "luxury_mine_donations_total",
+        "donations_total",
+    )
+    island_fields = island.select(
+        "island_id",
+        "snapshot_id",
+        "wonder_type_id",
+        "wonder_level",
+        "wonder_belief",
+        "luxury_resource_type",
+        "luxury_mine_level",
+        "sawmill_level",
+        pl.col("raw_city_count").alias("island_city_count"),
+        "sawmill_donated_cumulative",
+        "luxury_mine_donated_cumulative",
+        "wonder_donated_cumulative",
+        "sawmill_next_level_cost",
+        "luxury_mine_next_level_cost",
+        "wonder_next_level_cost",
+        "sawmill_next_level_remaining_cost",
+        "luxury_mine_next_level_remaining_cost",
+        "wonder_next_level_remaining_cost",
+    )
+
+    result = (
+        base.join(building, on=["city_id", "snapshot_id"], how="left")
+        .join(donation_fields, on=["player_id", "island_id", "snapshot_id"], how="left")
+        .join(island_fields, on=["island_id", "snapshot_id"], how="left")
+        .with_columns(
+            (
+                pl.col("wood_in_buildings")
+                + pl.col("crystal_in_buildings")
+                + pl.col("marble_in_buildings")
+                + pl.col("sulfur_in_buildings")
+                + pl.col("wine_in_buildings")
+            ).alias("resources_in_buildings_total"),
+            (pl.col("wood_in_buildings") + pl.col("wood_stored")).alias("wood_total"),
+            (pl.col("crystal_in_buildings") + pl.col("crystal_stored")).alias("crystal_total"),
+            (pl.col("marble_in_buildings") + pl.col("marble_stored")).alias("marble_total"),
+            (pl.col("sulfur_in_buildings") + pl.col("sulfur_stored")).alias("sulfur_total"),
+            (pl.col("wine_in_buildings") + pl.col("wine_stored")).alias("wine_total"),
+        )
+        .with_columns(
+            (
+                pl.col("resources_in_buildings_total") + pl.col("resources_stored_total")
+            ).alias("resources_in_buildings_and_storage_total")
+        )
+    )
+    formula_columns = [
+        col
+        for col in PUBLIC_DOCUMENTED_COLUMNS["city_snapshot"]
+        if col
+        not in {
+            "snapshot_date",
+            "country_code",
+            *PUBLIC_LEGACY_GOLD_COLUMNS["city_snapshot"],
+        }
+    ]
+    return fill_numeric_nulls(result).select(*formula_columns)
+
+
+def build_expected_island_snapshot_checks(
+    public_frames: dict[str, pl.DataFrame],
+    all_frames: dict[str, pl.DataFrame],
+    snapshot: SnapshotKey,
+    country: str,
+) -> pl.DataFrame:
+    suffix = country.lower()
+    raw_island = filter_to_snapshot(all_frames[f"raw_island_{suffix}"], snapshot)
+    city = public_frames["city_snapshot"]
+    donation = public_frames["donation_analytics_player_island_snapshot"]
+    island = public_frames["island_snapshot"]
+
+    raw_base = raw_island.select(
+        pl.col("id").alias("island_id"),
+        "snapshot_id",
+        (pl.col("id") + pl.lit("_") + pl.col("snapshot_id")).alias("island_snapshot_key"),
+        "wonder_type_id",
+        "wonder_level",
+        "wonder_belief",
+        pl.col("tradegood").alias("luxury_resource_type"),
+        pl.col("tradegood_level").alias("luxury_mine_level"),
+        pl.col("resource_level").alias("sawmill_level"),
+        pl.col("city_count").alias("raw_city_count"),
+        pl.col("resource_donated").alias("sawmill_donated_cumulative"),
+        pl.col("tradegood_donated").alias("luxury_mine_donated_cumulative"),
+        pl.col("wonder_donated").alias("wonder_donated_cumulative"),
+    )
+    base = island.select("island_id", "snapshot_id").join(
+        raw_base, on=["island_id", "snapshot_id"], how="left"
+    )
+    city_player_island = city.group_by(["player_id", "island_id", "snapshot_id"]).agg(
+        pl.len().alias("player_island_city_count"),
+        pl.col("population_total").sum().alias("population_total"),
+        pl.col("wood_in_buildings").sum().alias("wood_in_buildings"),
+        pl.col("resources_in_buildings_total").sum().alias("resources_in_buildings_total"),
+        pl.col("building_resource_score").sum().alias("building_resource_score"),
+        pl.col("resources_stored_total").sum().alias("resources_stored_total"),
+        pl.col("resources_in_buildings_and_storage_total")
+        .sum()
+        .alias("resources_in_buildings_and_storage_total"),
+        pl.col("building_levels_total").sum().alias("building_levels_total"),
+    )
+    city_agg = city_player_island.group_by(["island_id", "snapshot_id"]).agg(
+        pl.col("player_id").n_unique().alias("player_count"),
+        pl.col("player_island_city_count").sum().alias("city_count"),
+        pl.col("population_total").sum().alias("population_total"),
+        pl.col("wood_in_buildings").sum().alias("wood_in_buildings"),
+        pl.col("resources_in_buildings_total").sum().alias("resources_in_buildings_total"),
+        pl.col("building_resource_score").sum().alias("building_resource_score"),
+        pl.col("resources_stored_total").sum().alias("resources_stored_total"),
+        pl.col("resources_in_buildings_and_storage_total")
+        .sum()
+        .alias("resources_in_buildings_and_storage_total"),
+        pl.col("building_levels_total").sum().alias("building_levels_total"),
+        pl.col("population_total").mean().alias("avg_population_per_player"),
+        pl.col("building_resource_score").mean().alias("avg_building_resource_score_per_player"),
+    )
+    donation_agg = donation.group_by(["island_id", "snapshot_id"]).agg(
+        (pl.col("donations_total") > 0).sum().alias("donating_player_count"),
+        pl.col("wonder_donations_total").sum().alias("wonder_donations_total"),
+        pl.col("sawmill_donations_total").sum().alias("sawmill_donations_total"),
+        pl.col("luxury_mine_donations_total").sum().alias("luxury_mine_donations_total"),
+        pl.col("donations_total").sum().alias("donations_total"),
+        pl.col("donations_total").mean().alias("avg_donations_per_player"),
+    )
+    remaining = island.select(
+        "island_id",
+        "snapshot_id",
+        "sawmill_next_level_cost",
+        "luxury_mine_next_level_cost",
+        "wonder_next_level_cost",
+    )
+    result = (
+        base.join(city_agg, on=["island_id", "snapshot_id"], how="left")
+        .join(donation_agg, on=["island_id", "snapshot_id"], how="left")
+        .join(remaining, on=["island_id", "snapshot_id"], how="left")
+    )
+    result = fill_numeric_nulls(result).with_columns(
+        safe_percent(pl.col("donating_player_count"), pl.col("player_count")).alias(
+            "donating_player_share_pct"
+        ),
+        pl.max_horizontal(
+            pl.lit(0.0),
+            pl.col("sawmill_next_level_cost") - pl.col("sawmill_donated_cumulative"),
+        ).alias("sawmill_next_level_remaining_cost"),
+        pl.max_horizontal(
+            pl.lit(0.0),
+            pl.col("luxury_mine_next_level_cost") - pl.col("luxury_mine_donated_cumulative"),
+        ).alias("luxury_mine_next_level_remaining_cost"),
+        pl.max_horizontal(
+            pl.lit(0.0),
+            pl.col("wonder_next_level_cost") - pl.col("wonder_donated_cumulative"),
+        ).alias("wonder_next_level_remaining_cost"),
+    )
+    formula_columns = [
+        col
+        for col in PUBLIC_DOCUMENTED_COLUMNS["island_snapshot"]
+        if col
+        not in {
+            "snapshot_date",
+            "country_code",
+            *PUBLIC_LEGACY_GOLD_COLUMNS["island_snapshot"],
+        }
+    ]
+    return result.select(*formula_columns)
+
+
+def build_expected_donation_analytics_checks(
+    public_frames: dict[str, pl.DataFrame],
+) -> pl.DataFrame:
+    donation = public_frames["donation_analytics_player_island_snapshot"]
+    city = public_frames["city_snapshot"]
+    player = public_frames["player_snapshot"]
+
+    keys = ["player_id", "island_id", "snapshot_id"]
+    city_context = city.group_by(keys).agg(
+        pl.len().alias("player_island_city_count"),
+        pl.col("population_total").sum().alias("population_total"),
+        pl.col("town_hall_level").sum().alias("town_hall_levels_total"),
+        pl.col("building_levels_total").sum().alias("building_levels_total"),
+        pl.col("resource_workers").sum().alias("resource_workers_total"),
+        pl.col("tradegood_workers").sum().alias("tradegood_workers_total"),
+        pl.col("priests").sum().alias("priests_total"),
+        pl.col("wood_total").sum().alias("wood_total"),
+        pl.col("wine_total").sum().alias("wine_total"),
+        pl.col("marble_total").sum().alias("marble_total"),
+        pl.col("crystal_total").sum().alias("crystal_total"),
+        pl.col("sulfur_total").sum().alias("sulfur_total"),
+        pl.col("resources_in_buildings_and_storage_total").sum().alias("resources_total"),
+    )
+    city_context = city_context.with_columns(
+        pl.col("player_island_city_count")
+        .sum()
+        .over(["player_id", "snapshot_id"])
+        .alias("player_total_city_count"),
+        pl.col("player_id").n_unique().over(["island_id", "snapshot_id"]).alias(
+            "island_player_count"
+        ),
+        pl.col("player_island_city_count")
+        .sum()
+        .over(["island_id", "snapshot_id"])
+        .alias("island_city_count"),
+    )
+    base = city_context.join(
+        donation.select(
+            *keys,
+            "donations_total",
+            "sawmill_donations_total",
+            "luxury_mine_donations_total",
+            "wonder_donations_total",
+            "wonder_wine_donations_allocated",
+            "wonder_marble_donations_allocated",
+            "wonder_crystal_donations_allocated",
+            "wonder_sulfur_donations_allocated",
+            "luxury_mine_wine_donations",
+            "luxury_mine_marble_donations",
+            "luxury_mine_crystal_donations",
+            "luxury_mine_sulfur_donations",
+        ),
+        on=keys,
+        how="left",
+    ).join(
+        player.select("player_id", "snapshot_id", "account_age_days"),
+        on=["player_id", "snapshot_id"],
+        how="left",
+    )
+    base = fill_numeric_nulls(base).with_columns(
+        (pl.col("wonder_donations_total") + pl.col("luxury_mine_donations_total")).alias(
+            "wonder_and_luxury_mine_donations_total"
+        )
+    )
+    island_keys = ["island_id", "snapshot_id"]
+    result = base.with_columns(
+        pl.col("donations_total").sum().over(island_keys).alias("island_donations_total"),
+        pl.col("sawmill_donations_total")
+        .sum()
+        .over(island_keys)
+        .alias("island_sawmill_donations_total"),
+        pl.col("luxury_mine_donations_total")
+        .sum()
+        .over(island_keys)
+        .alias("island_luxury_mine_donations_total"),
+        pl.col("wonder_donations_total")
+        .sum()
+        .over(island_keys)
+        .alias("island_wonder_donations_total"),
+    )
+    result = result.with_columns(
+        safe_divide(pl.col("island_donations_total"), pl.col("island_player_count")).alias(
+            "island_avg_donations_per_player"
+        ),
+        safe_divide(
+            pl.col("island_sawmill_donations_total"), pl.col("island_player_count")
+        ).alias("island_avg_sawmill_donations_per_player"),
+        safe_divide(
+            pl.col("island_luxury_mine_donations_total"), pl.col("island_player_count")
+        ).alias("island_avg_luxury_mine_donations_per_player"),
+        safe_divide(
+            pl.col("island_wonder_donations_total"), pl.col("island_player_count")
+        ).alias("island_avg_wonder_donations_per_player"),
+        safe_divide(
+            pl.col("island_donations_total") - pl.col("donations_total"),
+            pl.col("island_player_count") - 1,
+        ).alias("island_peer_donations_avg"),
+        safe_divide(
+            pl.col("island_sawmill_donations_total") - pl.col("sawmill_donations_total"),
+            pl.col("island_player_count") - 1,
+        ).alias("island_peer_sawmill_donations_avg"),
+        safe_divide(
+            pl.col("island_luxury_mine_donations_total")
+            - pl.col("luxury_mine_donations_total"),
+            pl.col("island_player_count") - 1,
+        ).alias("island_peer_luxury_mine_donations_avg"),
+        safe_divide(
+            pl.col("island_wonder_donations_total") - pl.col("wonder_donations_total"),
+            pl.col("island_player_count") - 1,
+        ).alias("island_peer_wonder_donations_avg"),
+    )
+    result = result.with_columns(
+        (pl.col("donations_total") - pl.col("island_peer_donations_avg")).alias(
+            "donations_minus_island_peer_avg"
+        ),
+        safe_percent(pl.col("sawmill_donations_total"), pl.col("donations_total")).alias(
+            "sawmill_donation_share_pct"
+        ),
+        safe_percent(pl.col("luxury_mine_donations_total"), pl.col("donations_total")).alias(
+            "luxury_mine_donation_share_pct"
+        ),
+        safe_percent(pl.col("wonder_donations_total"), pl.col("donations_total")).alias(
+            "wonder_donation_share_pct"
+        ),
+        safe_divide(pl.col("donations_total"), pl.col("player_island_city_count")).alias(
+            "donations_per_city"
+        ),
+        safe_divide(pl.col("donations_total"), pl.col("population_total")).alias(
+            "donations_per_citizen"
+        ),
+        safe_divide(pl.col("donations_total"), pl.col("town_hall_levels_total")).alias(
+            "donations_per_town_hall_level"
+        ),
+        safe_divide(pl.col("sawmill_donations_total"), pl.col("resource_workers_total")).alias(
+            "sawmill_donations_per_resource_worker"
+        ),
+        safe_divide(
+            pl.col("luxury_mine_donations_total"), pl.col("tradegood_workers_total")
+        ).alias("luxury_mine_donations_per_tradegood_worker"),
+        safe_divide(pl.col("wonder_donations_total"), pl.col("priests_total")).alias(
+            "wonder_donations_per_priest"
+        ),
+        safe_divide(pl.col("donations_total"), pl.col("account_age_days")).alias(
+            "donations_per_account_age_day"
+        ),
+    )
+    result = result.with_columns(
+        safe_percent(
+            pl.col("sawmill_donations_total") + pl.col("luxury_mine_donations_total"),
+            pl.col("wood_total")
+            + pl.col("sawmill_donations_total")
+            + pl.col("luxury_mine_donations_total"),
+        ).alias("wood_donation_resource_share_pct"),
+        safe_percent(
+            pl.col("wonder_wine_donations_allocated"),
+            pl.col("wine_total") + pl.col("wonder_wine_donations_allocated"),
+        ).alias("wine_wonder_donation_resource_share_pct"),
+        safe_percent(
+            pl.col("wonder_marble_donations_allocated"),
+            pl.col("marble_total") + pl.col("wonder_marble_donations_allocated"),
+        ).alias("marble_wonder_donation_resource_share_pct"),
+        safe_percent(
+            pl.col("wonder_crystal_donations_allocated"),
+            pl.col("crystal_total") + pl.col("wonder_crystal_donations_allocated"),
+        ).alias("crystal_wonder_donation_resource_share_pct"),
+        safe_percent(
+            pl.col("wonder_sulfur_donations_allocated"),
+            pl.col("sulfur_total") + pl.col("wonder_sulfur_donations_allocated"),
+        ).alias("sulfur_wonder_donation_resource_share_pct"),
+        safe_percent(
+            pl.col("donations_total"),
+            pl.col("resources_total") + pl.col("donations_total"),
+        ).alias("donations_resource_share_pct"),
+    )
+    formula_columns = [
+        col
+        for col in PUBLIC_DOCUMENTED_COLUMNS["donation_analytics_player_island_snapshot"]
+        if col
+        not in {
+            "snapshot_date",
+            "country_code",
+            *PUBLIC_LEGACY_GOLD_COLUMNS["donation_analytics_player_island_snapshot"],
+        }
+    ]
+    return result.select(*formula_columns)
+
+
+def fill_numeric_nulls(df: pl.DataFrame) -> pl.DataFrame:
+    return df.with_columns(
+        pl.col(column).fill_null(0)
+        for column, dtype in zip(df.columns, df.dtypes, strict=True)
+        if dtype.is_numeric()
+    )
+
+
+def write_public_coverage_csv(
+    path: Path,
+    documented_columns: tuple[str, ...],
+    coverage: dict[str, str],
+    missing_documented: tuple[str, ...],
+    undocumented: tuple[str, ...],
+) -> None:
+    rows = [
+        {
+            "column": column,
+            "status": coverage.get(column, "unverified"),
+            "problem": "missing_from_lancedb" if column in missing_documented else "",
+        }
+        for column in documented_columns
+    ]
+    rows.extend(
+        {"column": column, "status": "undocumented", "problem": "extra_lancedb_column"}
+        for column in undocumented
+    )
+    pl.DataFrame(rows).write_csv(path)
+
+
 def compare_frame(
     gold: pl.DataFrame,
     actual: pl.DataFrame,
@@ -1415,7 +2244,7 @@ def compare_frame(
 
 
 def write_markdown_report(
-    results: list[ComparisonResult],
+    run_result: VerificationRunResult,
     report_path: Path,
     lancedb_path: Path,
     gold_dir: Path,
@@ -1432,13 +2261,36 @@ def write_markdown_report(
         f"- LanceDB: `{lancedb_path}`",
         f"- SQL gold CSVs: `{gold_dir}`",
         f"- Detail artifacts: `{detail_dir}`",
+        f"- Verification snapshot: `{run_result.snapshot.snapshot_id}` ({run_result.snapshot.snapshot_date})",
+        f"- Snapshot selection: {run_result.snapshot_selection}",
         "",
-        "## Summary",
+        "## Public Table Coverage",
         "",
-        "| Output | Status | Gold rows | Lance rows | Mapped columns | Unmapped SQL columns | SQL-only keys | Lance-only keys | Mismatches |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Table | Status | Rows | Verified columns | Missing docs | Undocumented | Unverified | Duplicate keys | Formula key gaps | Formula mismatches |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
-    for result in results:
+    for result in run_result.public_table_results:
+        status = "FAIL" if result.failed else "PASS"
+        formula_key_gaps = result.formula_result.gold_only_keys + result.formula_result.actual_only_keys
+        lines.append(
+            "| "
+            f"{result.name} | {status} | {result.rows} | "
+            f"{len(result.verified_columns)}/{len(result.documented_columns)} | "
+            f"{len(result.missing_documented_columns)} | {len(result.undocumented_columns)} | "
+            f"{len(result.unverified_columns)} | {result.duplicate_keys} | "
+            f"{formula_key_gaps} | {result.formula_result.mismatch_count} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Legacy Gold Reconstruction",
+            "",
+            "| Output | Status | Gold rows | Lance rows | Mapped columns | Old-only SQL columns | SQL-only keys | Lance-only keys | Mismatches |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for result in run_result.legacy_results:
         status = "FAIL" if result.failed else "PASS"
         lines.append(
             "| "
@@ -1452,8 +2304,8 @@ def write_markdown_report(
             "",
             "## Coverage Notes",
             "",
-            "This report verifies only columns with explicit mappings from the legacy SQL output to the current Dagster/LanceDB model.",
-            "Columns that are selected ambiguously by the legacy SQL or have no current public-table equivalent are reported as unmapped rather than treated as verified.",
+            "The primary pass/fail target is the documented public LanceDB data. Every documented public column must be covered by an invariant, a formula/source check, or the legacy-gold reconstruction path.",
+            "Old SQL columns without a current public-table equivalent are reported as old-only SQL columns. They are not treated as missing public data.",
             "Legacy donation columns are reconstructed from `donation_analytics_player_island_snapshot`, not from donation fields duplicated on `city_snapshot`.",
             "The only expected donation columns that remain unmapped are `d_Anz_Don_per_DB` and `d_Don_pro_DB`. They are database-wide donation broadcast constants copied onto every legacy row, not row-level analytics in the canonical LanceDB model.",
             f"Mismatch CSVs contain at most {MAX_MISMATCH_SAMPLES} sample rows per output; the summary table shows the full mismatch count.",
@@ -1462,14 +2314,32 @@ def write_markdown_report(
             "",
         ]
     )
-    for result in results:
+    for result in run_result.public_table_results:
         lines.extend(
             [
-                f"### {result.name}",
+                f"### Public {result.name}",
+                "",
+                f"- Keys: `{', '.join(result.key_columns)}`",
+                f"- Verified columns: {len(result.verified_columns)}/{len(result.documented_columns)}",
+                f"- Missing documented columns: {len(result.missing_documented_columns)}",
+                f"- Undocumented LanceDB columns: {len(result.undocumented_columns)}",
+                f"- Unverified columns: {len(result.unverified_columns)}",
+                f"- Coverage: `{result.coverage_path}`",
+                f"- Formula/source mismatches: `{result.formula_result.mismatch_path}`",
+                f"- Formula/source mismatch counts: `{result.formula_result.mismatch_counts_path}`",
+                f"- Expected-only keys: `{result.formula_result.gold_only_path}`",
+                f"- Lance-only keys: `{result.formula_result.actual_only_path}`",
+                "",
+            ]
+        )
+    for result in run_result.legacy_results:
+        lines.extend(
+            [
+                f"### Legacy {result.name}",
                 "",
                 f"- Keys: `{', '.join(result.key_columns)}`",
                 f"- Mapped columns: {len(result.mapped_columns)}",
-                f"- Unmapped SQL columns: {len(result.unmapped_columns)}",
+                f"- Old-only SQL columns: {len(result.unmapped_columns)}",
                 f"- Mismatches: `{result.mismatch_path}`",
                 f"- Mismatch counts: `{result.mismatch_counts_path}`",
                 f"- SQL-only keys: `{result.gold_only_path}`",
@@ -1488,14 +2358,37 @@ def run_verification(
     report_path: Path,
     detail_dir: Path,
     country: str = "DE",
-) -> list[ComparisonResult]:
+    snapshot_id: str | None = None,
+    verbose: bool = False,
+) -> VerificationRunResult:
     """Run the full load, projection, comparison, and report-writing workflow."""
+    log_progress(verbose, "Reading LanceDB tables")
     lancedb_frames = read_lancedb_frames(lancedb_path, country)
+    if snapshot_id is None:
+        snapshot_selection = "latest shared public snapshot"
+        log_progress(verbose, "Resolving latest shared public snapshot")
+    else:
+        snapshot_selection = f"explicit --snapshot-id {snapshot_id}"
+        log_progress(verbose, f"Resolving requested snapshot {snapshot_id}")
+    snapshot = resolve_verification_snapshot(lancedb_frames, snapshot_id=snapshot_id)
+    log_progress(verbose, f"Using snapshot {snapshot.snapshot_id} ({snapshot.snapshot_date})")
+    log_progress(verbose, "Reading SQL gold CSVs")
     gold_frames = read_gold_frames(gold_dir)
-    actual_frames = build_legacy_views(lancedb_frames, country)
-    results = compare_outputs(gold_frames, actual_frames, detail_dir)
-    write_markdown_report(results, report_path, lancedb_path, gold_dir, detail_dir)
-    return results
+    log_progress(verbose, "Building legacy compatibility views")
+    actual_frames = build_legacy_views(lancedb_frames, country, snapshot)
+    log_progress(verbose, "Comparing legacy gold outputs")
+    legacy_results = tuple(compare_outputs(gold_frames, actual_frames, detail_dir))
+    log_progress(verbose, "Verifying public LanceDB table columns")
+    public_results = tuple(verify_public_tables(lancedb_frames, detail_dir, snapshot, country))
+    run_result = VerificationRunResult(
+        snapshot=snapshot,
+        snapshot_selection=snapshot_selection,
+        legacy_results=legacy_results,
+        public_table_results=public_results,
+    )
+    log_progress(verbose, "Writing verification report")
+    write_markdown_report(run_result, report_path, lancedb_path, gold_dir, detail_dir)
+    return run_result
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1512,29 +2405,56 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("output/verification/lancedb_vs_sql_gold"),
     )
     parser.add_argument("--country", default="DE")
+    parser.add_argument(
+        "--snapshot-id",
+        default=None,
+        help="Verify this explicit snapshot_id instead of the latest shared public snapshot.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint: print summary lines and return nonzero on failures."""
     args = build_parser().parse_args(argv)
-    results = run_verification(
+    run_result = run_verification(
         lancedb_path=args.lancedb,
         gold_dir=args.gold_dir,
         report_path=args.report,
         detail_dir=args.detail_dir,
         country=args.country,
+        snapshot_id=args.snapshot_id,
+        verbose=True,
     )
-    failed = [result for result in results if result.failed]
-    for result in results:
+    print(
+        f"Snapshot: {run_result.snapshot.snapshot_id} "
+        f"({run_result.snapshot.snapshot_date})"
+    )
+    for result in run_result.public_table_results:
+        status = "FAIL" if result.failed else "PASS"
+        formula_key_gaps = result.formula_result.gold_only_keys + result.formula_result.actual_only_keys
+        print(
+            f"public {result.name}: {status} "
+            f"verified={len(result.verified_columns)}/{len(result.documented_columns)} "
+            f"missing={len(result.missing_documented_columns)} "
+            f"undocumented={len(result.undocumented_columns)} "
+            f"unverified={len(result.unverified_columns)} "
+            f"key_gaps={formula_key_gaps} "
+            f"mismatches={result.formula_result.mismatch_count}"
+        )
+    for result in run_result.legacy_results:
         status = "FAIL" if result.failed else "PASS"
         print(
-            f"{result.name}: {status} "
+            f"legacy {result.name}: {status} "
             f"mapped={len(result.mapped_columns)} unmapped={len(result.unmapped_columns)} "
             f"sql_only={result.gold_only_keys} lancedb_only={result.actual_only_keys} "
             f"mismatches={result.mismatch_count}"
         )
-    return 1 if failed else 0
+    return 1 if run_result.failed else 0
+
+
+def log_progress(verbose: bool, message: str) -> None:
+    if verbose:
+        print(f"[verification] {message}", flush=True)
 
 
 def _normalize_key_columns(df: pl.DataFrame, keys: tuple[str, ...]) -> pl.DataFrame:
@@ -1664,3 +2584,7 @@ def _write_mismatch_counts_csv(counts: dict[str, int], path: Path) -> None:
         pl.DataFrame(rows).write_csv(path)
         return
     pl.DataFrame(schema={"column": pl.Utf8, "mismatch_count": pl.Int64}).write_csv(path)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

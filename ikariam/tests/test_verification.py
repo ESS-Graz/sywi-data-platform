@@ -9,8 +9,10 @@ from ikariam.pipeline.verification import (
     ComparisonSpec,
     LEGACY_DONATION_AVG_MAP,
     LEGACY_DONATION_SUM_COLUMNS,
+    PUBLIC_DOCUMENTED_COLUMNS,
     aggregate_donations,
     aggregate_city2,
+    build_expected_donation_analytics_checks,
     build_island_level_per_avatar,
     build_legacy_views,
     build_legacy_donation2,
@@ -18,9 +20,12 @@ from ikariam.pipeline.verification import (
     build_legacy_donation4isl,
     build_legacy_avatar,
     build_legacy_city2,
+    build_parser,
     build_master_avi,
     build_teilnahme_av,
     compare_frame,
+    resolve_verification_snapshot,
+    verify_public_table,
 )
 
 
@@ -529,6 +534,182 @@ def test_compare_frame_reports_value_mismatches(tmp_path):
     ]
 
 
+def test_resolve_verification_snapshot_rejects_mixed_public_latest_snapshots():
+    frames = {
+        table: pl.DataFrame(
+            {
+                "snapshot_id": ["s1"],
+                "snapshot_date": ["2026-01-01" if table != "city_snapshot" else "2026-01-02"],
+            }
+        )
+        for table in (
+            "player_snapshot",
+            "city_snapshot",
+            "island_snapshot",
+            "donation_analytics_player_island_snapshot",
+        )
+    }
+
+    with pytest.raises(ValueError, match="latest snapshots disagree"):
+        resolve_verification_snapshot(frames)
+
+
+def test_resolve_verification_snapshot_accepts_explicit_older_snapshot():
+    frames = {
+        table: pl.DataFrame(
+            {
+                "snapshot_id": ["s1", "s2"],
+                "snapshot_date": ["2026-01-01", "2026-01-02"],
+            }
+        )
+        for table in (
+            "player_snapshot",
+            "city_snapshot",
+            "island_snapshot",
+            "donation_analytics_player_island_snapshot",
+        )
+    }
+
+    result = resolve_verification_snapshot(frames, snapshot_id="s1")
+
+    assert result.snapshot_id == "s1"
+    assert result.snapshot_date == "2026-01-01"
+
+
+def test_resolve_verification_snapshot_rejects_missing_explicit_snapshot():
+    frames = {
+        table: pl.DataFrame(
+            {
+                "snapshot_id": ["s1" if table != "city_snapshot" else "s2"],
+                "snapshot_date": ["2026-01-01"],
+            }
+        )
+        for table in (
+            "player_snapshot",
+            "city_snapshot",
+            "island_snapshot",
+            "donation_analytics_player_island_snapshot",
+        )
+    }
+
+    with pytest.raises(ValueError, match="city_snapshot does not contain requested snapshot_id"):
+        resolve_verification_snapshot(frames, snapshot_id="s1")
+
+
+def test_resolve_verification_snapshot_rejects_conflicting_explicit_snapshot_dates():
+    frames = {
+        table: pl.DataFrame(
+            {
+                "snapshot_id": ["s1"],
+                "snapshot_date": ["2026-01-01" if table != "city_snapshot" else "2026-01-02"],
+            }
+        )
+        for table in (
+            "player_snapshot",
+            "city_snapshot",
+            "island_snapshot",
+            "donation_analytics_player_island_snapshot",
+        )
+    }
+
+    with pytest.raises(ValueError, match="inconsistent public-table dates"):
+        resolve_verification_snapshot(frames, snapshot_id="s1")
+
+
+def test_build_parser_accepts_snapshot_id():
+    args = build_parser().parse_args(["--snapshot-id", "de_1311_14"])
+
+    assert args.snapshot_id == "de_1311_14"
+
+
+def test_verify_public_table_fails_undocumented_lancedb_column(tmp_path):
+    actual = _one_row_public_frame("player_snapshot").with_columns(
+        pl.lit("extra").alias("surprise_column")
+    )
+    expected = actual.drop("surprise_column")
+
+    result = verify_public_table("player_snapshot", actual, expected, tmp_path)
+
+    assert result.undocumented_columns == ("surprise_column",)
+    assert result.failed
+
+
+def test_verify_public_table_fails_missing_documented_column(tmp_path):
+    actual = _one_row_public_frame("player_snapshot").drop("gender")
+    expected = _one_row_public_frame("player_snapshot")
+
+    result = verify_public_table("player_snapshot", actual, expected, tmp_path)
+
+    assert result.missing_documented_columns == ("gender",)
+    assert result.failed
+
+
+def test_public_donation_analytics_formula_corruption_fails(tmp_path):
+    table = "donation_analytics_player_island_snapshot"
+    keys = ["player_id", "island_id", "snapshot_id"]
+    donation_base = pl.DataFrame(
+        {
+            "player_id": ["p1"],
+            "island_id": ["i1"],
+            "snapshot_id": ["s1"],
+            "snapshot_date": ["2026-01-01"],
+            "country_code": ["DE"],
+            "donations_total": [100.0],
+            "sawmill_donations_total": [40.0],
+            "luxury_mine_donations_total": [30.0],
+            "wonder_donations_total": [30.0],
+            "wonder_wine_donations_allocated": [10.0],
+            "wonder_marble_donations_allocated": [0.0],
+            "wonder_crystal_donations_allocated": [10.0],
+            "wonder_sulfur_donations_allocated": [10.0],
+            "luxury_mine_wine_donations": [0.0],
+            "luxury_mine_marble_donations": [30.0],
+            "luxury_mine_crystal_donations": [0.0],
+            "luxury_mine_sulfur_donations": [0.0],
+        }
+    )
+    city = pl.DataFrame(
+        {
+            "player_id": ["p1"],
+            "island_id": ["i1"],
+            "snapshot_id": ["s1"],
+            "population_total": [10.0],
+            "town_hall_level": [5.0],
+            "building_levels_total": [20.0],
+            "resource_workers": [4.0],
+            "tradegood_workers": [3.0],
+            "priests": [2.0],
+            "wood_total": [100.0],
+            "wine_total": [20.0],
+            "marble_total": [30.0],
+            "crystal_total": [40.0],
+            "sulfur_total": [50.0],
+            "resources_in_buildings_and_storage_total": [240.0],
+        }
+    )
+    player = pl.DataFrame(
+        {"player_id": ["p1"], "snapshot_id": ["s1"], "account_age_days": [10.0]}
+    )
+    expected = build_expected_donation_analytics_checks(
+        {
+            table: donation_base,
+            "city_snapshot": city,
+            "player_snapshot": player,
+        }
+    )
+    actual = donation_base.join(expected, on=keys, how="left").select(
+        PUBLIC_DOCUMENTED_COLUMNS[table]
+    )
+    corrupted = actual.with_columns(
+        (pl.col("donations_per_city") + 1.0).alias("donations_per_city")
+    )
+
+    result = verify_public_table(table, corrupted, expected, tmp_path)
+
+    assert result.formula_result.mismatch_count == 1
+    assert result.failed
+
+
 def _legacy_donation2_fixture() -> pl.DataFrame:
     def row(player_id: str, island_id: str, **values: float) -> dict[str, float | str]:
         data: dict[str, float | str] = {
@@ -590,6 +771,26 @@ def _legacy_donation2_fixture() -> pl.DataFrame:
             ),
         ]
     )
+
+
+def _one_row_public_frame(table: str) -> pl.DataFrame:
+    values = {}
+    for column in PUBLIC_DOCUMENTED_COLUMNS[table]:
+        if column.endswith("_id") or column in {"player_id", "city_id", "island_id"}:
+            values[column] = ["id1"]
+        elif column == "snapshot_id":
+            values[column] = ["s1"]
+        elif column == "snapshot_date":
+            values[column] = ["2026-01-01"]
+        elif column == "country_code":
+            values[column] = ["DE"]
+        elif column == "registered_at":
+            values[column] = ["1970-01-01T00:00:00.000000"]
+        elif column == "is_capital":
+            values[column] = [True]
+        else:
+            values[column] = [1.0]
+    return pl.DataFrame(values)
 
 
 def _legacy_city2_donation_context_fixture() -> pl.DataFrame:
