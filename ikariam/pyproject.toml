@@ -9,7 +9,6 @@ dependencies = [
     "lancedb>=0.17.0",
     "polars>=1.37.0",
     "pyarrow>=19.0.0",
-    "pyyaml>=6.0.2",
     "structlog>=25.5.0",
 ]
 

@@ -27,8 +27,7 @@ EXCLUDED_DIRS = {
 
 COMPOSE_PROD_FILE = "docker-compose.prod.yaml"
 WORKSPACE_FILE = "workspace.yaml"
-RAW_DATA_CONTAINER_DIR = "/opt/dagster/raw_data"
-RAW_DATA_VOLUME = f"./data/raw:{RAW_DATA_CONTAINER_DIR}:ro"
+RAW_DATA_VOLUME = "./data/raw:/opt/dagster/app/data/raw:ro"
 
 
 def is_project_dir(path: str) -> bool:
@@ -84,7 +83,6 @@ def generate_compose(projects: list[str]) -> dict:
             "command": "dagster-daemon run",
             "environment": {
                 "DAGSTER_HOME": "/opt/dagster/dagster_home",
-                "SYWI_RAW_DATA_DIR": RAW_DATA_CONTAINER_DIR,
             },
             "env_file": ".env",
             "volumes": [
@@ -108,7 +106,6 @@ def generate_compose(projects: list[str]) -> dict:
             "environment": {
                 "DAGSTER_HOME": "/opt/dagster/dagster_home",
                 "DAGSTER_UI_PATH_PREFIX": "/dagster",
-                "SYWI_RAW_DATA_DIR": RAW_DATA_CONTAINER_DIR,
             },
             "env_file": ".env",
             "volumes": [
@@ -136,9 +133,6 @@ def generate_compose(projects: list[str]) -> dict:
                 "dockerfile": f"{project}/Dockerfile",
             },
             "env_file": ".env",
-            "environment": {
-                "SYWI_RAW_DATA_DIR": RAW_DATA_CONTAINER_DIR,
-            },
             "volumes": [
                 RAW_DATA_VOLUME,
             ],

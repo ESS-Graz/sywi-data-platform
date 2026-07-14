@@ -122,14 +122,11 @@ Docker services as read-only raw input storage.
 For example, Ikariam expects:
 
 ```text
-data/raw/ikariam/<server>/<snapshot_date>/<table>.parquet
+data/raw/ikariam/<lowercase-server>/<snapshot_date>/<table>.parquet
 ```
 
-Configure the raw data root in `.env.local`:
-
-```bash
-SYWI_RAW_DATA_DIR=./data/raw
-```
+The platform root and raw-data location are inferred; no environment variable
+is required.
 
 #### Interactive DuckDB Session
 

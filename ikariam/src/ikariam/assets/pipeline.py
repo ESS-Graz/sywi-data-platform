@@ -3,30 +3,30 @@
 import polars as pl
 from dagster import AssetExecutionContext, MaterializeResult, MetadataValue, asset
 
-from ikariam.pipeline.config import get_config
-from ikariam.pipeline.io_files import read_building_costs
-from ikariam.pipeline.io_lance import partition_raw_tables_by_country, write_lancedb
-from ikariam.pipeline.io_raw import load_raw_table
-from ikariam.pipeline.transforms.building_costs import join_building_costs
-from ikariam.pipeline.transforms.city_agg import aggregate_to_player_island
-from ikariam.pipeline.transforms.city_metrics import compute_city_metrics
-from ikariam.pipeline.transforms.donation_analytics import (
+from ikariam.processing.config import get_config
+from ikariam.processing.io_files import read_building_costs
+from ikariam.processing.io_lance import partition_raw_tables_by_country, write_lancedb
+from ikariam.processing.io_raw import load_raw_table
+from ikariam.processing.transforms.building_costs import join_building_costs
+from ikariam.processing.transforms.city_agg import aggregate_to_player_island
+from ikariam.processing.transforms.city_metrics import compute_city_metrics
+from ikariam.processing.transforms.donation_analytics import (
     build_donation_analytics_player_island_snapshot,
 )
-from ikariam.pipeline.transforms.donations import process_donations
-from ikariam.pipeline.transforms.final_datasets import (
+from ikariam.processing.transforms.donations import process_donations
+from ikariam.processing.transforms.final_datasets import (
     build_city_snapshot_table,
     build_island_snapshot_table,
     build_player_snapshot_table,
 )
-from ikariam.pipeline.transforms.higher_agg import (
+from ikariam.processing.transforms.higher_agg import (
     aggregate_by_avatar,
     aggregate_by_island,
     donations_by_avatar,
     donations_by_island,
 )
-from ikariam.pipeline.transforms.islands import enrich_islands
-from ikariam.pipeline.transforms.player_duration import enrich_avatars
+from ikariam.processing.transforms.islands import enrich_islands
+from ikariam.processing.transforms.player_duration import enrich_avatars
 
 RAW_GROUP = "ikariam_raw"
 TRANSFORM_GROUP = "ikariam_transforms"
@@ -80,6 +80,7 @@ def building_costs(context: AssetExecutionContext) -> pl.DataFrame:
 
 @asset(group_name=TRANSFORM_GROUP)
 def valid_players(context: AssetExecutionContext, raw_avatar: pl.DataFrame) -> pl.DataFrame:
+    """Keep players whose registration time meets the configured lower bound."""
     cfg = get_config()
     df = (
         raw_avatar.filter(pl.col("registration_time").cast(pl.Int64) >= cfg.min_registration_time)
@@ -319,6 +320,7 @@ def ikariam_lancedb(
     island_snapshot: pl.DataFrame,
     donation_analytics_player_island_snapshot: pl.DataFrame,
 ) -> MaterializeResult:
+    """Delete and rebuild LanceDB with public and country-partitioned raw tables."""
     public_tables = {
         "player_snapshot": player_snapshot,
         "city_snapshot": city_snapshot,

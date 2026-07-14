@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 import polars as pl
 
-from ikariam.pipeline.verification import (
+from ikariam.processing.verification import (
     ComparisonSpec,
     LEGACY_DONATION_AVG_MAP,
     LEGACY_DONATION_SUM_COLUMNS,

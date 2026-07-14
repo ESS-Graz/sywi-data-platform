@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from ikariam.pipeline.transforms.islands import enrich_islands
+from ikariam.processing.transforms.islands import enrich_islands
 
 
 def test_island_upgrade_costs_match_sql_q23_tables():

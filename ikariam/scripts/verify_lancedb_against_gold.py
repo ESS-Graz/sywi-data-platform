@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ikariam.pipeline.verification import main
+from ikariam.processing.verification import main
 
 
 if __name__ == "__main__":

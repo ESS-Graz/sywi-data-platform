@@ -4,9 +4,11 @@ import math
 from pathlib import Path
 
 import polars as pl
+import pytest
 
-from ikariam.pipeline.config import Config, DurationBand, load_config, project_root
-from ikariam.pipeline.io_raw import discover_snapshots, load_raw_table
+from ikariam.processing import config as config_module
+from ikariam.processing.config import Config, DurationBand, load_config
+from ikariam.processing.io_raw import discover_snapshots, load_raw_table
 
 
 def _cfg(raw_data_dir: Path) -> Config:
@@ -50,63 +52,45 @@ def test_raw_loader_discovers_countries_and_adds_snapshot_columns(tmp_path: Path
     ]
 
 
-def test_default_config_finds_workspace_level_raw_data(monkeypatch, tmp_path: Path):
+def test_config_uses_workspace_raw_convention(monkeypatch, tmp_path: Path):
     workspace = tmp_path / "workspace"
     project = workspace / "ikariam"
     raw_root = workspace / "data" / "raw" / "ikariam"
     (raw_root / "de" / "2013-04-25").mkdir(parents=True)
     project.mkdir()
+    (workspace / "dg.toml").write_text('directory_type = "workspace"\n', encoding="utf-8")
 
-    monkeypatch.chdir(project)
-    monkeypatch.delenv("IKARIAM_RAW_DATA_DIR", raising=False)
-    monkeypatch.delenv("SYWI_RAW_DATA_DIR", raising=False)
-    monkeypatch.delenv("IKARIAM_COUNTRIES", raising=False)
+    monkeypatch.setattr(config_module, "project_root", lambda: project)
 
     cfg = load_config()
 
+    assert config_module.platform_root() == workspace
     assert cfg.raw_data_dir == raw_root
     assert cfg.countries == ("DE",)
     assert cfg.building_costs_path == raw_root / "building_costs.csv"
 
 
-def test_default_config_resolves_from_dagster_dev_workspace(monkeypatch, tmp_path: Path):
-    workspace = tmp_path / "workspace"
-    project = workspace / "ikariam"
-    dagster_workspace = workspace / ".dagster" / "dev-workspace"
-    raw_root = workspace / "data" / "raw" / "ikariam"
-    building_costs = raw_root / "building_costs.csv"
-
-    (project / "src" / "ikariam").mkdir(parents=True)
-    (project / "pyproject.toml").write_text("[project]\nname = \"ikariam\"\n", encoding="utf-8")
-    building_costs.parent.mkdir(parents=True)
-    building_costs.write_text("", encoding="utf-8")
+def test_config_uses_project_root_without_workspace(monkeypatch, tmp_path: Path):
+    project = tmp_path / "ikariam"
+    raw_root = project / "data" / "raw" / "ikariam"
     (raw_root / "de" / "2013-04-25").mkdir(parents=True)
-    dagster_workspace.mkdir(parents=True)
 
-    monkeypatch.chdir(dagster_workspace)
-    monkeypatch.delenv("IKARIAM_PROJECT_ROOT", raising=False)
-    monkeypatch.delenv("IKARIAM_RAW_DATA_DIR", raising=False)
-    monkeypatch.delenv("SYWI_RAW_DATA_DIR", raising=False)
-    monkeypatch.delenv("IKARIAM_COUNTRIES", raising=False)
+    monkeypatch.setattr(config_module, "project_root", lambda: project)
 
     cfg = load_config()
 
-    assert project_root() == project
+    assert config_module.platform_root() == project
     assert cfg.raw_data_dir == raw_root
     assert cfg.countries == ("DE",)
-    assert cfg.building_costs_path == building_costs
+    assert cfg.building_costs_path == raw_root / "building_costs.csv"
 
 
-def test_building_costs_path_can_be_overridden(monkeypatch, tmp_path: Path):
-    raw_root = tmp_path / "data" / "raw" / "ikariam"
-    override = tmp_path / "inputs" / "building_costs.csv"
-    (raw_root / "de" / "2013-04-25").mkdir(parents=True)
+def test_config_rejects_uppercase_country_directories(monkeypatch, tmp_path: Path):
+    project = tmp_path / "ikariam"
+    raw_root = project / "data" / "raw" / "ikariam"
+    (raw_root / "DE" / "2013-04-25").mkdir(parents=True)
 
-    monkeypatch.setenv("IKARIAM_RAW_DATA_DIR", str(raw_root))
-    monkeypatch.setenv("IKARIAM_BUILDING_COSTS_PATH", str(override))
-    monkeypatch.delenv("IKARIAM_COUNTRIES", raising=False)
+    monkeypatch.setattr(config_module, "project_root", lambda: project)
 
-    cfg = load_config()
-
-    assert cfg.raw_data_dir == raw_root
-    assert cfg.building_costs_path == override
+    with pytest.raises(ValueError, match="Country directories must be lowercase: DE"):
+        load_config()

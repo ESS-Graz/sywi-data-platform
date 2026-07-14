@@ -4,8 +4,8 @@ import math
 
 import polars as pl
 
-from ikariam.pipeline.config import DurationBand
-from ikariam.pipeline.utils import duration_adjustment_expr
+from ikariam.processing.config import DurationBand
+from ikariam.processing.utils import duration_adjustment_expr
 
 BANDS = (
     DurationBand(180000, 1.00),

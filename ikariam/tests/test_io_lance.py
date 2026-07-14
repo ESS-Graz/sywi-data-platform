@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import polars as pl
 
-from ikariam.pipeline.io_lance import partition_raw_tables_by_country
+from ikariam.processing.io_lance import partition_raw_tables_by_country
 
 
 def test_partition_raw_tables_by_country_splits_rows_deterministically():

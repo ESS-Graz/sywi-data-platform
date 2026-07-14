@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import polars as pl
 
-from ikariam.pipeline.transforms.donation_analytics import (
+from ikariam.processing.transforms.donation_analytics import (
     build_donation_analytics_player_island_snapshot,
 )
 

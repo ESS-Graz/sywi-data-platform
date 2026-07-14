@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -12,15 +11,6 @@ from .config import Config, Snapshot
 
 RAW_TABLES: tuple[str, ...] = ("avatar", "city", "donation", "island")
 
-
-@dataclass(frozen=True, slots=True)
-class RawTables:
-    avatar: pl.DataFrame
-    city: pl.DataFrame
-    donation: pl.DataFrame
-    island: pl.DataFrame
-
-
 def snapshot_id_for(country: str, snapshot_date: date) -> str:
     return f"{country.lower()}_{snapshot_date:%d%m_%y}"
 
@@ -29,8 +19,6 @@ def discover_snapshots(raw_data_dir: Path, countries: tuple[str, ...]) -> tuple[
     snapshots: list[Snapshot] = []
     for country in countries:
         country_dir = raw_data_dir / country.lower()
-        if not country_dir.exists():
-            country_dir = raw_data_dir / country.upper()
         if not country_dir.exists():
             raise FileNotFoundError(f"Missing raw data directory for country {country}: {country_dir}")
 
@@ -48,10 +36,7 @@ def discover_snapshots(raw_data_dir: Path, countries: tuple[str, ...]) -> tuple[
 
 
 def _snapshot_dir(raw_data_dir: Path, snapshot: Snapshot) -> Path:
-    lower = raw_data_dir / snapshot.country.lower() / snapshot.snapshot_date.isoformat()
-    if lower.exists():
-        return lower
-    return raw_data_dir / snapshot.country.upper() / snapshot.snapshot_date.isoformat()
+    return raw_data_dir / snapshot.country.lower() / snapshot.snapshot_date.isoformat()
 
 
 def _read_table(snapshot_dir: Path, snapshot: Snapshot, table: str) -> pl.DataFrame:
@@ -82,13 +67,3 @@ def load_raw_table(cfg: Config, table: str) -> pl.DataFrame:
     if not frames:
         raise FileNotFoundError(f"No {table}.parquet files found under {cfg.raw_data_dir}")
     return pl.concat(frames, how="diagonal_relaxed")
-
-
-def load_raw_tables(cfg: Config) -> RawTables:
-    tables = {table: load_raw_table(cfg, table) for table in RAW_TABLES}
-    return RawTables(
-        avatar=tables["avatar"],
-        city=tables["city"],
-        donation=tables["donation"],
-        island=tables["island"],
-    )
