@@ -8,25 +8,26 @@ historical player investment.
 
 ## Executive summary
 
-The current pipeline calculates the undiscounted cumulative base cost of all
-buildings visible in a city and then multiplies the complete amount by a factor
-inferred from the player's account age.
+The reviewed pipeline calculated the undiscounted cumulative base cost of all
+buildings visible in a city and then overwrote it with an amount multiplied by
+a factor inferred from the player's account age.
 
 This creates a non-monotonic metric: when a player crosses a research-age
 threshold, their calculated value can decrease even if they have not demolished
 anything. It also incorrectly applies the player's inferred current research
 discount to building levels constructed before that research was completed.
 
-The recommendation is:
+The implemented panel model is:
 
-1. Use undiscounted cumulative base costs as the canonical value of the
+1. Preserve `building_base_cost_*` as the factual, undiscounted value of the
    buildings currently present.
-2. Name this metric `current_building_base_value` or similarly. It is not the
-   player's total historical expenditure.
-3. Keep account age separate and use it for peer comparisons or statistical
-   normalization, not to modify the underlying building value.
-4. Retain the legacy discounted calculation only if required for verification,
-   and label it explicitly as a legacy metric.
+2. Calculate `account_age_days` independently at each snapshot.
+3. Expose a separate `estimated_building_cost_*` family as a rebuilding-cost
+   proxy, never as observed historical expenditure.
+4. Infer that estimate from the stronger of a documented age heuristic and
+   one-way building evidence, with factor, source, and evidence tier exposed.
+5. Keep stored resources separate and combine them with the estimate only in
+   explicitly named `estimated_*_resource_value` fields.
 
 ## What the building-cost calculation measures
 
@@ -113,8 +114,8 @@ completion depends on academies, scientists, player choices, and other factors;
 it is not determined by account age.
 
 The SQL also uses unusual strict inequalities that leave small gaps at exact
-boundaries. The Python implementation reproduces this behavior for legacy
-parity.
+boundaries. The former Python implementation reproduced this behavior for
+legacy parity.
 
 ## Why applying the factor to cumulative costs is problematic
 
@@ -184,6 +185,21 @@ The last result proves that the age heuristic is wrong for at least some
 players. Improving that heuristic would still not solve the conceptual problem
 of applying one factor to all cumulative historical construction.
 
+## Implemented hybrid estimate
+
+The secondary estimate uses exact calendar-day bands at each snapshot: days
+0–2 map to `1.00`, 3–16 to `0.98`, 17–152 to `0.94`, and 153 or more to `0.86`.
+At the same time, the strongest qualifying building observed across all of a
+player's cities establishes a minimum research tier. Because completed research
+persists even if the evidence building is later demolished, that positive
+evidence is carried forward through the player's panel but never backward into
+earlier snapshots.
+
+The final factor is the smaller of the age and evidence factors. Its source is
+`building_evidence` only when evidence makes the factor strictly smaller;
+otherwise it is `age_heuristic`. The evidence tier remains visible even when it
+does not determine the final factor.
+
 ## Snapshot-relative account age
 
 The reviewed implementation used the fixed Unix timestamp `1415923200`
@@ -212,12 +228,14 @@ Further-developed players will naturally have a larger absolute value. That is
 appropriate when measuring current infrastructure, but it is not sufficient for
 comparing development performance or generosity.
 
-Recommended separate measurements are:
+The implemented separate measurements are:
 
-- `current_building_base_value`: current infrastructure at base prices;
-- `stored_resources`: resources currently visible in storage;
+- `building_base_cost_*`: current infrastructure at base prices;
+- `estimated_building_cost_*`: an explicitly modeled rebuilding-cost proxy;
+- `*_stored`: resources currently visible in storage;
+- `estimated_*_resource_value`: modeled building cost plus visible storage;
 - `account_age_days`: time since registration at the snapshot;
-- `total_donations`: observed contributions;
+- `donations_total`: observed contributions;
 - age- and development-relative analytical indicators derived from the factual
   measurements above.
 
@@ -271,100 +289,47 @@ The CSV covers 809 of them. The 25 missing combinations are all levels 1–25 of
 building type 31.
 
 Type 31 appears in 3,149 building slots across the snapshots, beginning on
-`2013-10-24`. Its introduction date and maximum level identify it as the Black
-Market.
+`2013-10-24`. The date, the 2013 game version, and the building's observed
+levels identify it as the Pirate Fortress. The Black Market was incorrectly
+associated with this historical id in an earlier review.
 
 The legacy SQL also contains no entries for building type 31. It contains many
 entries for other building types at building level 31, but no condition of the
 form `p1t = 31`. Therefore the missing CSV rows reproduce a legacy omission,
 not a CSV-conversion mistake.
 
-The current join replaces missing cost lookups with zero. As a result, every
-Black Market is currently assigned zero value. Missing nonempty building
-lookups should instead fail validation.
-
-## Historical Black Market costs
-
-Historical Ikariam wiki tables provide the undiscounted per-level Black Market
-costs for levels 1–25. The building uses wood and marble. These per-level costs
-must be cumulatively summed to match the convention used by the CSV.
-
-Selected cumulative values are:
-
-| Level | Cumulative wood | Cumulative marble |
-| ---: | ---: | ---: |
-| 1 | 440 | 260 |
-| 2 | 1,327 | 785 |
-| 10 | 36,321 | 22,302 |
-| 20 | 398,974 | 256,940 |
-| 25 | 1,014,299 | 659,558 |
-
-Complete cumulative type-31 values:
-
-| Level | Wood | Marble |
-| ---: | ---: | ---: |
-| 1 | 440 | 260 |
-| 2 | 1,327 | 785 |
-| 3 | 2,687 | 1,592 |
-| 4 | 4,577 | 2,718 |
-| 5 | 7,093 | 4,227 |
-| 6 | 10,381 | 6,215 |
-| 7 | 14,644 | 8,816 |
-| 8 | 20,149 | 12,206 |
-| 9 | 27,235 | 16,609 |
-| 10 | 36,321 | 22,302 |
-| 11 | 47,911 | 29,617 |
-| 12 | 62,602 | 38,948 |
-| 13 | 81,091 | 50,755 |
-| 14 | 104,179 | 65,567 |
-| 15 | 132,779 | 83,987 |
-| 16 | 167,922 | 106,695 |
-| 17 | 210,761 | 134,452 |
-| 18 | 262,581 | 168,106 |
-| 19 | 324,799 | 208,592 |
-| 20 | 398,974 | 256,940 |
-| 21 | 486,812 | 314,274 |
-| 22 | 590,168 | 381,820 |
-| 23 | 711,056 | 460,907 |
-| 24 | 851,652 | 552,971 |
-| 25 | 1,014,299 | 659,558 |
-
-The official Gameforge table independently supports the historical raw costs.
-For example, it displays level-1 values of 378 wood and 223 marble, which match
-the base values after the 14% Spirit Level discount:
-
-```text
-440 × 0.86 ≈ 378
-260 × 0.86 ≈ 223
-```
+The former join replaced missing cost lookups with zero, assigning every Pirate
+Fortress zero value. Lookup validation now rejects missing nonempty buildings,
+so materialization fails visibly until audited historical Pirate Fortress costs
+are supplied. Current references show that this building reaches level 30 and
+uses wood and marble, but values must be checked against the historical game
+version before they are added; current Black Market costs are not a valid
+substitute.
 
 ## Recommended implementation decisions
 
-1. Add the 25 cumulative type-31 rows to `building_costs.csv`.
+1. Add audited cumulative Pirate Fortress rows for the observed type-31 levels
+   to `building_costs.csv`.
 2. Validate that `(building_type, building_level)` is unique in the lookup.
 3. Validate that every nonzero type/level pair used by the city data has a
    lookup row; do not silently convert missing real buildings to zero.
 4. Continue treating empty positions `(0, 0)` as zero cost.
 5. Preserve undiscounted resource totals as the canonical building value.
-6. Remove account-age discounting from canonical building-resource totals.
-7. If legacy parity remains necessary, expose the discounted result under an
-   explicitly legacy name and keep it out of canonical analytical metrics.
-8. Calculate account age relative to each snapshot and use it for peer analysis
-   rather than modifying factual infrastructure values.
+6. Keep the hybrid research-cost estimate in a separate, explicitly estimated
+   field family with factor provenance.
+7. Calculate account age relative to each snapshot and never overwrite factual
+   base-cost fields with an age-derived value.
+8. Carry positive building evidence forward only; never infer it backward from
+   a future observation.
 
-## Open questions for the team
+## Remaining analytical questions
 
 1. Is the intended measure current infrastructure, historical expenditure,
    development performance, or donation generosity? These are different
    scientific constructs and require different metrics.
-2. Is exact output parity with the legacy SQL still required for public data,
-   or only for a verification layer?
-3. Should current stored resources be combined with current building value, or
-   exposed separately because one is liquid stock and the other is
-   infrastructure?
-4. Which population should define age peers: all visible players, active
+2. Which population should define age peers: all visible players, active
    players only, or players meeting another participation rule?
-5. Should expected-value models be fitted separately per snapshot, or should a
+3. Should expected-value models be fitted separately per snapshot, or should a
    pooled model include snapshot effects?
 
 ## Sources
@@ -377,6 +342,7 @@ the base values after the 14% Spirit Level discount:
 - [Architect's Office (pre-8.8)](https://ikariam.fandom.com/wiki/Building%3AArchitect%27s_Office_%28Pre_8.8%29)
 - [Wine Press](https://ikariam.fandom.com/wiki/Building%3AWine_Press)
 - [Guide to Building](https://ikariam.fandom.com/wiki/Guide_to_Building)
-- [Historical Black Market levels 21–25](https://ikariam.fandom.com/tr/wiki/Building%3ABlack_Market/21-25)
-- [Official Gameforge Black Market table](https://gameforge.com/en-GB/games/ikariam-black-market.html)
-
+- [Gameforge discussion: completed research remains permanent](https://forum.ikariam.gameforge.com/forum/thread/102076-vor%C3%BCbergehende-forschungen-verbesserungen/)
+- [Gameforge discussion: academy can be demolished after research completion](https://forum.ikariam.gameforge.com/forum/thread/47730-que-faire-une-fois-les-recherches-termin%C3%A9es/)
+- [Pirate Fortress expansion details](https://ikariam.fandom.com/wiki/Building%3APirate_Fortress)
+- [Gameforge forum building-level reference](https://forum.ikariam.gameforge.com/forum/thread/102643-wbbl-worldwide-biggest-building-levels/)

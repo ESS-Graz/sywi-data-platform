@@ -5,6 +5,7 @@ This directory contains the pipeline for processing Ikariam data snapshots into 
 ## Primary Tables
 
 All raw snapshot data is aggregated and cleaned into four primary snapshot tables stored in LanceDB:
+
 - `player_snapshot` (grain: one row per player per snapshot)
 - `city_snapshot` (grain: one row per city per snapshot)
 - `island_snapshot` (grain: one row per island per snapshot)
@@ -13,6 +14,7 @@ All raw snapshot data is aggregated and cleaned into four primary snapshot table
 ## Data Denormalization & Normalization Philosophy
 
 To support rich analytical workloads, we deliberately choose a denormalized design for the `city_snapshot` table:
+
 - **Intentionally Repeated Metrics**: Player-island level donations (e.g., `donations_total`) and island metadata (e.g., `wonder_level`, `wonder_belief`, mine levels) are repeated across all cities owned by a player on the same island.
 - **Rationale**: Denormalization simplifies downstream analysis by keeping related city, player, and island contexts in a single, extensive snapshot dataset, eliminating the need for complex multi-table joins.
 - **Aggregation Rules**:
@@ -29,6 +31,25 @@ Donation ratios and island peer averages live in `donation_analytics_player_isla
 This table keeps donation facts, denominators, intensity ratios, composition shares, and island peer averages at their natural player-island-snapshot grain.
 
 It intentionally does not reproduce legacy database-wide broadcast constants such as total server donations copied onto every row. Those values are report summaries, not row-level analytics.
+
+## Account Age and Building Costs
+
+`account_age_days` is calculated independently for every snapshot as the
+calendar-day difference between `snapshot_date` and the player's UTC
+registration date. Building costs are intentionally split into distinct
+concepts:
+
+- `building_base_cost_*` is the undiscounted cumulative lookup cost of the
+  buildings visible in that snapshot.
+- `estimated_building_cost_*` applies the player-snapshot research factor
+  inferred from age and cumulative building evidence.
+- `*_stored` remains the observed inventory, while
+  `estimated_*_resource_value` combines that inventory with the estimated
+  building cost.
+
+The estimate is not historical expenditure. Use
+`estimated_research_cost_factor`, `estimated_research_cost_factor_source`, and
+`research_evidence_tier` to identify how it was inferred.
 
 ## Reconstructing Dropped Summary and Latest Tables
 
@@ -91,11 +112,11 @@ SELECT
     player_id,
     island_id,
     SUM(population_total) AS population_total,
-    SUM(wood_in_buildings) AS wood_in_buildings,
-    SUM(resources_in_buildings_total) AS resources_in_buildings_total,
-    SUM(building_resource_score) AS building_resource_score,
+    SUM(building_base_cost_wood) AS building_base_cost_wood,
+    SUM(building_base_cost_total) AS building_base_cost_total,
+    SUM(estimated_building_cost_total) AS estimated_building_cost_total,
     SUM(resources_stored_total) AS resources_stored_total,
-    SUM(resources_in_buildings_and_storage_total) AS resources_in_buildings_and_storage_total,
+    SUM(estimated_resource_value_total) AS estimated_resource_value_total,
     SUM(building_levels_total) AS building_levels_total,
     -- Aggregating player-island level donations using MAX to avoid double counting across cities
     MAX(wonder_donations_total) AS wonder_donations_total,

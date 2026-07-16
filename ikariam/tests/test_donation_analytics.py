@@ -43,19 +43,43 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
             "resource_workers": [4.0, 2.0],
             "tradegood_workers": [3.0, 5.0],
             "priests": [2.0, 0.0],
-            "Holz_Ges_verb_lag": [100.0, 20.0],
-            "Wein_Ges_verb_lag": [20.0, 5.0],
-            "Stein_Ges_verb_lag": [30.0, 5.0],
-            "Kristall_Ges_verb_lag": [40.0, 5.0],
-            "Schwefel_Ges_verb_lag": [50.0, 5.0],
-            "Res_Ges_verb_lag": [240.0, 40.0],
+            "building_base_cost_wood": [80.0, 15.0],
+            "building_base_cost_crystal": [30.0, 0.0],
+            "building_base_cost_marble": [20.0, 0.0],
+            "building_base_cost_sulfur": [40.0, 0.0],
+            "building_base_cost_wine": [10.0, 0.0],
+            "building_base_cost_total": [180.0, 15.0],
+            "estimated_building_cost_wood": [80.0, 15.0],
+            "estimated_building_cost_crystal": [30.0, 0.0],
+            "estimated_building_cost_marble": [20.0, 0.0],
+            "estimated_building_cost_sulfur": [40.0, 0.0],
+            "estimated_building_cost_wine": [10.0, 0.0],
+            "estimated_building_cost_total": [180.0, 15.0],
+            "wood_stored": [20.0, 5.0],
+            "crystal_stored": [10.0, 5.0],
+            "marble_stored": [10.0, 5.0],
+            "sulfur_stored": [10.0, 5.0],
+            "wine_stored": [10.0, 5.0],
+            "resources_stored_total": [60.0, 25.0],
+            "estimated_wood_resource_value": [100.0, 20.0],
+            "estimated_crystal_resource_value": [40.0, 5.0],
+            "estimated_marble_resource_value": [30.0, 5.0],
+            "estimated_sulfur_resource_value": [50.0, 5.0],
+            "estimated_wine_resource_value": [20.0, 5.0],
+            "estimated_resource_value_total": [240.0, 40.0],
         }
     )
     player_enriched = pl.DataFrame(
         {
             "id": ["p1", "p2"],
             "snapshot_id": ["s1", "s1"],
-            "Spieldauer": [10.0, 20.0],
+            "account_age_days": [10, 0],
+            "estimated_research_cost_factor": [0.98, 1.0],
+            "estimated_research_cost_factor_source": [
+                "age_heuristic",
+                "age_heuristic",
+            ],
+            "research_evidence_tier": ["none", "none"],
         }
     )
 
@@ -83,5 +107,16 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
     assert row["sawmill_donations_per_resource_worker"] == 10.0
     assert row["luxury_mine_donations_per_tradegood_worker"] == 10.0
     assert row["wonder_donations_per_priest"] == 15.0
-    assert row["donations_per_account_age_day"] == 10.0
-    assert row["wood_donation_resource_share_pct"] == pytest.approx(70.0 / 170.0 * 100.0)
+    assert row["cumulative_donations_per_account_age_day"] == 10.0
+    assert row["estimated_research_cost_factor"] == 0.98
+    assert row["estimated_research_cost_factor_source"] == "age_heuristic"
+    assert row["research_evidence_tier"] == "none"
+    assert row["estimated_wood_donation_resource_share_pct"] == pytest.approx(
+        70.0 / 170.0 * 100.0
+    )
+    assert row["estimated_donations_resource_share_pct"] == pytest.approx(
+        100.0 / 340.0 * 100.0
+    )
+
+    age_zero_row = result.filter(pl.col("player_id") == "p2").row(0, named=True)
+    assert age_zero_row["cumulative_donations_per_account_age_day"] is None

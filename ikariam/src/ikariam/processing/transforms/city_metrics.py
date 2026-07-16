@@ -1,24 +1,10 @@
-"""Step 05: derive city-level columns (resources built/stored, population, levels).
+"""Step 05: derive city-level resources, population, and building levels.
 
-Mirrors these legacy SQL operations:
-
-  calculate_city_building_cost_totals
-    Sum g{i}{res} into `{res}_verbaut`; set `Baumeister_Highscore` to the
-    UNADJUSTED sum of the five _verbaut cols. Legacy SQL name: Q14.
-
-  apply_account_age_resource_adjustment
-    Apply duration-band factor (1.00 / 0.98 / 0.94 / 0.86, with "gap"
-    boundary values keeping 1.0) to each `{res}_verbaut` in place.
-    Legacy SQL name: Q15.
-
-  calculate_city_resource_and_population_totals
-    Compute `Res_Ges_verbaut` as sum of ADJUSTED verbaut, plus
-    `{res}_Ges_verb_lag = {res}_verbaut + {res}_lagernd`, etc.
-    Legacy SQL name: Q16.
-
-Input: city_with_costs, avatar_enriched.
-Output: city_enriched — per-city detail. Aggregated to player-island grain
-in step 06.
+Building lookup costs remain observable base costs.  The player-snapshot
+research factor produces a separate estimated-cost family, and stored
+resources are added only to that estimated family.  Keeping these concepts
+separate prevents the old age-adjusted ``*_verbaut`` values from being
+mistaken for either raw lookup costs or observed resources.
 """
 
 from __future__ import annotations
@@ -26,6 +12,16 @@ from __future__ import annotations
 import polars as pl
 
 from ..utils import safe_percent
+
+
+RESOURCE_COST_SUFFIXES: tuple[tuple[str, str], ...] = (
+    ("wood", "h"),
+    ("crystal", "k"),
+    ("marble", "q"),
+    ("sulfur", "s"),
+    ("wine", "w"),
+)
+RESOURCE_NAMES: tuple[str, ...] = tuple(name for name, _ in RESOURCE_COST_SUFFIXES)
 
 
 def _cost_cols(suffix: str) -> list[pl.Expr]:
@@ -57,83 +53,78 @@ def compute_city_metrics(
     else:
         df = df.with_columns(pl.lit(0.0).alias("priests"))
 
-    # --- Building cost totals: sum unadjusted cost cols; set Baumeister_Highscore. ---
+    # Observable cumulative lookup costs at the city's building levels.
     df = df.with_columns(
-        pl.sum_horizontal(_cost_cols("h")).alias("Holz_verbaut"),
-        pl.sum_horizontal(_cost_cols("k")).alias("Kristall_verbaut"),
-        pl.sum_horizontal(_cost_cols("q")).alias("Stein_verbaut"),
-        pl.sum_horizontal(_cost_cols("s")).alias("Schwefel_verbaut"),
-        pl.sum_horizontal(_cost_cols("w")).alias("Wein_verbaut"),
+        [
+            pl.sum_horizontal(_cost_cols(suffix)).alias(
+                f"building_base_cost_{resource}"
+            )
+            for resource, suffix in RESOURCE_COST_SUFFIXES
+        ]
     )
     df = df.with_columns(
-        (
-            pl.col("Holz_verbaut")
-            + pl.col("Kristall_verbaut")
-            + pl.col("Stein_verbaut")
-            + pl.col("Schwefel_verbaut")
-            + pl.col("Wein_verbaut")
-        ).alias("Baumeister_Highscore")
+        pl.sum_horizontal(
+            [pl.col(f"building_base_cost_{resource}") for resource in RESOURCE_NAMES]
+        ).alias("building_base_cost_total")
     )
 
-    # --- Stored resource totals (depend only on raw tradegood cols). ---
+    # Stored resource totals depend only on the raw city inventory columns.
     df = df.with_columns(
-        pl.col("resource").alias("Holz_lagernd"),
-        pl.col("tradegood1").alias("Wein_lagernd"),
-        pl.col("tradegood2").alias("Stein_lagernd"),
-        pl.col("tradegood3").alias("Kristall_lagernd"),
-        pl.col("tradegood4").alias("Schwefel_lagernd"),
+        pl.col("resource").alias("wood_stored"),
+        pl.col("tradegood1").alias("wine_stored"),
+        pl.col("tradegood2").alias("marble_stored"),
+        pl.col("tradegood3").alias("crystal_stored"),
+        pl.col("tradegood4").alias("sulfur_stored"),
     )
     df = df.with_columns(
-        (
-            pl.col("Wein_lagernd")
-            + pl.col("Stein_lagernd")
-            + pl.col("Kristall_lagernd")
-            + pl.col("Schwefel_lagernd")
-        ).alias("QKWS_lagernd")
-    )
-    df = df.with_columns(
-        (pl.col("Holz_lagernd") + pl.col("QKWS_lagernd")).alias("Res_Ges_lagernd")
+        pl.sum_horizontal(
+            [pl.col(f"{resource}_stored") for resource in RESOURCE_NAMES]
+        ).alias("resources_stored_total")
     )
 
-    # --- Join avatar data (needed for account-age resource adjustment). ---
+    # Attach the single player-snapshot estimate and its provenance.
     avatar_slice = avatar_enriched.select(
         pl.col("id").alias("owner_id"),
         pl.col("snapshot_id"),
-        pl.col("duration_adjustment").alias("avatar_duration_adjustment"),
-        pl.col("Spieldauer").alias("avatar_Spieldauer"),
+        "account_age_days",
+        "registered_at",
+        "estimated_research_cost_factor",
+        "estimated_research_cost_factor_source",
+        "research_evidence_tier",
     )
     df = df.join(avatar_slice, on=["owner_id", "snapshot_id"], how="left")
 
-    # --- Account-age resource adjustment: apply band factor to each *_verbaut. ---
-    # Cities with no matching avatar (shouldn't normally happen) keep factor 1.0.
-    adj = pl.col("avatar_duration_adjustment").fill_null(1.0)
+    # Estimated building cost is explicit rather than overwriting base cost.
+    factor = pl.col("estimated_research_cost_factor")
     df = df.with_columns(
-        (pl.col("Holz_verbaut") * adj).alias("Holz_verbaut"),
-        (pl.col("Kristall_verbaut") * adj).alias("Kristall_verbaut"),
-        (pl.col("Stein_verbaut") * adj).alias("Stein_verbaut"),
-        (pl.col("Schwefel_verbaut") * adj).alias("Schwefel_verbaut"),
-        (pl.col("Wein_verbaut") * adj).alias("Wein_verbaut"),
+        [
+            (pl.col(f"building_base_cost_{resource}") * factor).alias(
+                f"estimated_building_cost_{resource}"
+            )
+            for resource in RESOURCE_NAMES
+        ]
+    )
+    df = df.with_columns(
+        pl.sum_horizontal(
+            [pl.col(f"estimated_building_cost_{resource}") for resource in RESOURCE_NAMES]
+        ).alias("estimated_building_cost_total")
     )
 
-    # --- City resource totals using adjusted verbaut. ---
+    # Estimated resource value combines estimated building costs and observed
+    # storage, while retaining every input component for reconciliation.
     df = df.with_columns(
-        (
-            pl.col("Holz_verbaut")
-            + pl.col("Kristall_verbaut")
-            + pl.col("Stein_verbaut")
-            + pl.col("Schwefel_verbaut")
-            + pl.col("Wein_verbaut")
-        ).alias("Res_Ges_verbaut")
+        [
+            (
+                pl.col(f"estimated_building_cost_{resource}")
+                + pl.col(f"{resource}_stored")
+            ).alias(f"estimated_{resource}_resource_value")
+            for resource in RESOURCE_NAMES
+        ]
     )
     df = df.with_columns(
-        (pl.col("Holz_verbaut") + pl.col("Holz_lagernd")).alias("Holz_Ges_verb_lag"),
-        (pl.col("Kristall_verbaut") + pl.col("Kristall_lagernd")).alias("Kristall_Ges_verb_lag"),
-        (pl.col("Stein_verbaut") + pl.col("Stein_lagernd")).alias("Stein_Ges_verb_lag"),
-        (pl.col("Schwefel_verbaut") + pl.col("Schwefel_lagernd")).alias("Schwefel_Ges_verb_lag"),
-        (pl.col("Wein_verbaut") + pl.col("Wein_lagernd")).alias("Wein_Ges_verb_lag"),
-    )
-    df = df.with_columns(
-        (pl.col("Res_Ges_verbaut") + pl.col("Res_Ges_lagernd")).alias("Res_Ges_verb_lag")
+        pl.sum_horizontal(
+            [pl.col(f"estimated_{resource}_resource_value") for resource in RESOURCE_NAMES]
+        ).alias("estimated_resource_value_total")
     )
 
     # --- Population, worker totals, building levels. ---
@@ -169,13 +160,7 @@ def compute_city_metrics(
     )
     avg_cols = {
         "Avg_Buerger_Ges": "Buerger_Ges",
-        "Avg_Holz_Ges_verb_lag": "Holz_Ges_verb_lag",
-        "Avg_Kristall_Ges_verb_lag": "Kristall_Ges_verb_lag",
-        "Avg_Stein_Ges_verb_lag": "Stein_Ges_verb_lag",
-        "Avg_Schwefel_Ges_verb_lag": "Schwefel_Ges_verb_lag",
-        "Avg_Wein_Ges_verb_lag": "Wein_Ges_verb_lag",
         "Avg_Rathauslev": "Rathauslev",
-        "Avg_Res_Ges_verb_lag": "Res_Ges_verb_lag",
         "Avg_Resource_workers": "resource_workers",
         "Avg_Tradegood_workers": "tradegood_workers",
         "Avg_Anz_cities_per_Av": "Anz_Cities_per_Av",

@@ -26,7 +26,10 @@ from ikariam.processing.transforms.higher_agg import (
     donations_by_island,
 )
 from ikariam.processing.transforms.islands import enrich_islands
-from ikariam.processing.transforms.player_duration import enrich_avatars
+from ikariam.processing.transforms.player_duration import (
+    enrich_avatars,
+    prepare_validated_avatars,
+)
 
 RAW_GROUP = "ikariam_raw"
 TRANSFORM_GROUP = "ikariam_transforms"
@@ -83,7 +86,8 @@ def valid_players(context: AssetExecutionContext, raw_avatar: pl.DataFrame) -> p
     """Keep players whose registration time meets the configured lower bound."""
     cfg = get_config()
     df = (
-        raw_avatar.filter(pl.col("registration_time").cast(pl.Int64) >= cfg.min_registration_time)
+        prepare_validated_avatars(raw_avatar)
+        .filter(pl.col("_registration_time_int") >= cfg.min_registration_time)
         .select("country", "id")
         .unique()
     )
@@ -141,8 +145,16 @@ def city_with_costs(
 def player_enriched(
     context: AssetExecutionContext,
     filtered_avatar: pl.DataFrame,
+    filtered_city: pl.DataFrame,
 ) -> pl.DataFrame:
-    df = enrich_avatars(filtered_avatar, get_config())
+    """Add snapshot-relative account age and inferred research-cost context.
+
+    City building slots provide one-way evidence for completed Economy
+    research.  The player transform owns that inference so the same
+    player-snapshot factor is used consistently by every downstream city and
+    donation calculation.
+    """
+    df = enrich_avatars(filtered_avatar, filtered_city)
     _add_df_metadata(context, df)
     return df
 

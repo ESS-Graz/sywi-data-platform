@@ -28,11 +28,13 @@ _RESOURCES: tuple[tuple[str, str], ...] = (
 
 def join_building_costs(city_raw: pl.DataFrame, building_costs: pl.DataFrame) -> pl.DataFrame:
     all_p_cols = [f"p{pos}{k}" for pos in range(1, 18) for k in ("t", "l")]
-    present_p_cols = [c for c in all_p_cols if c in city_raw.columns]
+    missing_p_cols = sorted(set(all_p_cols) - set(city_raw.columns))
+    if missing_p_cols:
+        raise ValueError(f"Missing building position columns: {missing_p_cols}")
 
     # Cast all 34 position columns (p{i}t, p{i}l) once, up front.
     df = city_raw.with_columns(
-        pl.col(c).cast(pl.Int64, strict=False) for c in present_p_cols
+        pl.col(c).cast(pl.Int64, strict=False) for c in all_p_cols
     )
 
     bc = building_costs.select(
@@ -40,6 +42,31 @@ def join_building_costs(city_raw: pl.DataFrame, building_costs: pl.DataFrame) ->
         pl.col("building_level").cast(pl.Int64),
         "cost_holz", "cost_kristall", "cost_quartz", "cost_schwefel", "cost_wein",
     )
+
+    used_buildings = (
+        pl.concat(
+            [
+                df.select(
+                    pl.col(f"p{pos}t").alias("building_type"),
+                    pl.col(f"p{pos}l").alias("building_level"),
+                )
+                for pos in range(1, 18)
+            ]
+        )
+        .filter((pl.col("building_type") > 0) & (pl.col("building_level") > 0))
+        .unique()
+    )
+    missing_buildings = used_buildings.join(
+        bc.select("building_type", "building_level").unique(),
+        on=["building_type", "building_level"],
+        how="anti",
+    ).sort(["building_type", "building_level"])
+    if not missing_buildings.is_empty():
+        missing_pairs = ", ".join(
+            f"({building_type}, {building_level})"
+            for building_type, building_level in missing_buildings.iter_rows()
+        )
+        raise ValueError(f"Missing building cost lookups: {missing_pairs}")
 
     # 17 left joins (one per position). Each iteration renames the lookup's
     # join keys + cost columns to this position's naming so we can join on

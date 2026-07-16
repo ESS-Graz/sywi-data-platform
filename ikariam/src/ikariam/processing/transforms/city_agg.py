@@ -1,11 +1,4 @@
-"""Step 06: aggregate city_enriched to player-island grain.
-
-Group by (owner_id, island_id, snapshot_id) with rules:
-- SUM: population, resources built/stored/combined, building levels, capital count
-- FIRST: snapshot_date, country, the pre-broadcast per-avatar/DB counts
-- MEAN: worker percentages (then recalculated from summed values)
-Adds cities_on_island = count of cities in group, then per-avatar means.
-"""
+"""Step 06: aggregate city enrichment to player-island-snapshot grain."""
 
 from __future__ import annotations
 
@@ -13,25 +6,32 @@ import polars as pl
 
 from ..utils import safe_percent
 
+RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine")
+RESOURCE_SUM_COLUMNS: tuple[str, ...] = (
+    tuple(f"building_base_cost_{resource}" for resource in RESOURCE_NAMES)
+    + ("building_base_cost_total",)
+    + tuple(f"estimated_building_cost_{resource}" for resource in RESOURCE_NAMES)
+    + ("estimated_building_cost_total",)
+    + tuple(f"{resource}_stored" for resource in RESOURCE_NAMES)
+    + ("resources_stored_total",)
+    + tuple(f"estimated_{resource}_resource_value" for resource in RESOURCE_NAMES)
+    + ("estimated_resource_value_total",)
+)
+
 SUM_COLUMNS: tuple[str, ...] = (
     "citizens", "scientists", "priests", "resource_workers", "tradegood_workers",
     "Buerger_Ges", "Resworkers_Holz_Lux",
-    "Holz_verbaut", "Kristall_verbaut", "Stein_verbaut", "Schwefel_verbaut", "Wein_verbaut",
-    "Holz_verbaut_adj", "Kristall_verbaut_adj", "Stein_verbaut_adj",
-    "Schwefel_verbaut_adj", "Wein_verbaut_adj",
-    "Res_Ges_verbaut", "Baumeister_Highscore", "Baumeister_Highscore_adj",
-    "Holz_lagernd", "Kristall_lagernd", "Stein_lagernd", "Schwefel_lagernd", "Wein_lagernd",
-    "QKWS_lagernd", "Res_Ges_lagernd",
-    "Holz_Ges_verb_lag", "Kristall_Ges_verb_lag", "Stein_Ges_verb_lag",
-    "Schwefel_Ges_verb_lag", "Wein_Ges_verb_lag", "Res_Ges_verb_lag",
     "Geblev", "Rathauslev", "GovReslev",
     "capital",
-)
+) + RESOURCE_SUM_COLUMNS
 
 FIRST_COLUMNS: tuple[str, ...] = (
     "snapshot_date", "country",
     "Anz_Cities_per_Av", "Anz_Ins_per_Av", "Anz_Cities_per_DB",
-    "avatar_duration_adjustment", "avatar_Spieldauer",
+    "account_age_days", "registered_at",
+    "estimated_research_cost_factor",
+    "estimated_research_cost_factor_source",
+    "research_evidence_tier",
 )
 
 AVG_COLUMNS: tuple[str, ...] = (
@@ -66,13 +66,7 @@ def aggregate_to_player_island(city_enriched: pl.DataFrame) -> pl.DataFrame:
 
     avg_map = {
         "Avg_Buerger_Ges": "Buerger_Ges",
-        "Avg_Holz_Ges_verb_lag": "Holz_Ges_verb_lag",
-        "Avg_Kristall_Ges_verb_lag": "Kristall_Ges_verb_lag",
-        "Avg_Stein_Ges_verb_lag": "Stein_Ges_verb_lag",
-        "Avg_Schwefel_Ges_verb_lag": "Schwefel_Ges_verb_lag",
-        "Avg_Wein_Ges_verb_lag": "Wein_Ges_verb_lag",
         "Avg_Rathauslev": "Rathauslev",
-        "Avg_Res_Ges_verb_lag": "Res_Ges_verb_lag",
         "Avg_Resource_workers": "resource_workers",
         "Avg_Tradegood_workers": "tradegood_workers",
     }

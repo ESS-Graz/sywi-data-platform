@@ -17,6 +17,19 @@ import polars as pl
 from ..utils import safe_divide, safe_percent
 
 
+RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine")
+RESOURCE_COLUMNS: tuple[str, ...] = (
+    tuple(f"building_base_cost_{resource}" for resource in RESOURCE_NAMES)
+    + ("building_base_cost_total",)
+    + tuple(f"estimated_building_cost_{resource}" for resource in RESOURCE_NAMES)
+    + ("estimated_building_cost_total",)
+    + tuple(f"{resource}_stored" for resource in RESOURCE_NAMES)
+    + ("resources_stored_total",)
+    + tuple(f"estimated_{resource}_resource_value" for resource in RESOURCE_NAMES)
+    + ("estimated_resource_value_total",)
+)
+
+
 def build_donation_analytics_player_island_snapshot(
     donation_enriched: pl.DataFrame,
     city_player_island: pl.DataFrame,
@@ -61,12 +74,7 @@ def build_donation_analytics_player_island_snapshot(
         pl.col("resource_workers").alias("resource_workers_total"),
         pl.col("tradegood_workers").alias("tradegood_workers_total"),
         pl.col("priests").alias("priests_total"),
-        pl.col("Holz_Ges_verb_lag").alias("wood_total"),
-        pl.col("Wein_Ges_verb_lag").alias("wine_total"),
-        pl.col("Stein_Ges_verb_lag").alias("marble_total"),
-        pl.col("Kristall_Ges_verb_lag").alias("crystal_total"),
-        pl.col("Schwefel_Ges_verb_lag").alias("sulfur_total"),
-        pl.col("Res_Ges_verb_lag").alias("resources_total"),
+        *RESOURCE_COLUMNS,
     )
     player_keys = ["player_id", "snapshot_id"]
     island_keys = ["island_id", "snapshot_id"]
@@ -79,7 +87,10 @@ def build_donation_analytics_player_island_snapshot(
     player = player_enriched.select(
         pl.col("id").alias("player_id"),
         "snapshot_id",
-        pl.col("Spieldauer").alias("account_age_days"),
+        "account_age_days",
+        "estimated_research_cost_factor",
+        "estimated_research_cost_factor_source",
+        "research_evidence_tier",
     )
 
     result = base.join(city, on=["player_id", "island_id", "snapshot_id"], how="left").join(
@@ -89,6 +100,7 @@ def build_donation_analytics_player_island_snapshot(
         column
         for column, dtype in zip(result.columns, result.dtypes, strict=True)
         if dtype.is_numeric()
+        and column not in {"account_age_days", "estimated_research_cost_factor"}
     ]
     result = result.with_columns(pl.col(column).fill_null(0) for column in numeric_fill_columns)
 
@@ -163,37 +175,45 @@ def build_donation_analytics_player_island_snapshot(
         safe_divide(pl.col("wonder_donations_total"), pl.col("priests_total")).alias(
             "wonder_donations_per_priest"
         ),
-        safe_divide(pl.col("donations_total"), pl.col("account_age_days")).alias(
-            "donations_per_account_age_day"
-        ),
+        pl.when(
+            pl.col("account_age_days").is_null()
+            | (pl.col("account_age_days") == 0)
+        )
+        .then(pl.lit(None, dtype=pl.Float64))
+        .otherwise(pl.col("donations_total") / pl.col("account_age_days"))
+        .alias("cumulative_donations_per_account_age_day"),
     )
     result = result.with_columns(
         safe_percent(
             pl.col("sawmill_donations_total") + pl.col("luxury_mine_donations_total"),
-            pl.col("wood_total")
+            pl.col("estimated_wood_resource_value")
             + pl.col("sawmill_donations_total")
             + pl.col("luxury_mine_donations_total"),
-        ).alias("wood_donation_resource_share_pct"),
+        ).alias("estimated_wood_donation_resource_share_pct"),
         safe_percent(
             pl.col("wonder_wine_donations_allocated"),
-            pl.col("wine_total") + pl.col("wonder_wine_donations_allocated"),
-        ).alias("wine_wonder_donation_resource_share_pct"),
+            pl.col("estimated_wine_resource_value")
+            + pl.col("wonder_wine_donations_allocated"),
+        ).alias("estimated_wine_wonder_donation_resource_share_pct"),
         safe_percent(
             pl.col("wonder_marble_donations_allocated"),
-            pl.col("marble_total") + pl.col("wonder_marble_donations_allocated"),
-        ).alias("marble_wonder_donation_resource_share_pct"),
+            pl.col("estimated_marble_resource_value")
+            + pl.col("wonder_marble_donations_allocated"),
+        ).alias("estimated_marble_wonder_donation_resource_share_pct"),
         safe_percent(
             pl.col("wonder_crystal_donations_allocated"),
-            pl.col("crystal_total") + pl.col("wonder_crystal_donations_allocated"),
-        ).alias("crystal_wonder_donation_resource_share_pct"),
+            pl.col("estimated_crystal_resource_value")
+            + pl.col("wonder_crystal_donations_allocated"),
+        ).alias("estimated_crystal_wonder_donation_resource_share_pct"),
         safe_percent(
             pl.col("wonder_sulfur_donations_allocated"),
-            pl.col("sulfur_total") + pl.col("wonder_sulfur_donations_allocated"),
-        ).alias("sulfur_wonder_donation_resource_share_pct"),
+            pl.col("estimated_sulfur_resource_value")
+            + pl.col("wonder_sulfur_donations_allocated"),
+        ).alias("estimated_sulfur_wonder_donation_resource_share_pct"),
         safe_percent(
             pl.col("donations_total"),
-            pl.col("resources_total") + pl.col("donations_total"),
-        ).alias("donations_resource_share_pct"),
+            pl.col("estimated_resource_value_total") + pl.col("donations_total"),
+        ).alias("estimated_donations_resource_share_pct"),
     )
 
     return result.sort(["player_id", "island_id", "snapshot_date", "snapshot_id"])

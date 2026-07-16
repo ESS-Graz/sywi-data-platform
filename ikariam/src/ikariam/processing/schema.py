@@ -7,40 +7,143 @@ here use readable lower_snake_case names. The raw database table is named
 
 from __future__ import annotations
 
+
+_RESOURCE_UNITS: dict[str, str] = {
+    "wood": "wood",
+    "crystal": "crystal",
+    "marble": "marble",
+    "sulfur": "sulfur",
+    "wine": "wine",
+}
+
+
+def _building_cost_docs(scope: str) -> dict[str, dict[str, str]]:
+    docs = {
+        f"building_base_cost_{resource}": {
+            "description": (
+                f"Undiscounted cumulative base {resource} cost of buildings "
+                f"currently present {scope}"
+            ),
+            "unit": unit,
+        }
+        for resource, unit in _RESOURCE_UNITS.items()
+    }
+    docs["building_base_cost_total"] = {
+        "description": (
+            f"Total undiscounted cumulative base-resource cost of buildings "
+            f"currently present {scope}"
+        ),
+        "unit": "sum",
+    }
+    docs.update(
+        {
+            f"estimated_building_cost_{resource}": {
+                "description": (
+                    f"Estimated {resource} cost of the buildings currently present {scope}, "
+                    "using the estimated research cost factor; this is not observed "
+                    "historical expenditure"
+                ),
+                "unit": unit,
+            }
+            for resource, unit in _RESOURCE_UNITS.items()
+        }
+    )
+    docs["estimated_building_cost_total"] = {
+        "description": (
+            f"Total estimated resource cost of the buildings currently present {scope}, "
+            "using the estimated research cost factor; this is not observed historical "
+            "expenditure"
+        ),
+        "unit": "sum",
+    }
+    return docs
+
+
+def _stored_resource_docs(scope: str) -> dict[str, dict[str, str]]:
+    docs = {
+        f"{resource}_stored": {
+            "description": f"Currently stored {resource} {scope}",
+            "unit": unit,
+        }
+        for resource, unit in _RESOURCE_UNITS.items()
+    }
+    docs["resources_stored_total"] = {
+        "description": f"Total currently stored resources {scope}",
+        "unit": "sum",
+    }
+    return docs
+
+
+def _estimated_resource_value_docs(scope: str) -> dict[str, dict[str, str]]:
+    docs = {
+        f"estimated_{resource}_resource_value": {
+            "description": (
+                f"Estimated {resource} building cost plus currently stored {resource} {scope}"
+            ),
+            "unit": unit,
+        }
+        for resource, unit in _RESOURCE_UNITS.items()
+    }
+    docs["estimated_resource_value_total"] = {
+        "description": (
+            f"Total estimated building cost plus currently stored resources {scope}"
+        ),
+        "unit": "sum",
+    }
+    return docs
+
+
+RESEARCH_COST_ESTIMATE_DOCS: dict[str, dict[str, str]] = {
+    "estimated_research_cost_factor": {
+        "description": (
+            "Estimated building-cost multiplier: the stronger of the snapshot-age "
+            "heuristic and research evidence observed in this or an earlier snapshot"
+        ),
+        "unit": "ratio",
+    },
+    "estimated_research_cost_factor_source": {
+        "description": (
+            "Source that determined the estimated factor: building_evidence only when "
+            "it implies a strictly smaller factor, otherwise age_heuristic"
+        ),
+        "unit": "enum",
+    },
+    "research_evidence_tier": {
+        "description": (
+            "Strongest minimum research tier supported by buildings observed in this or "
+            "an earlier snapshot: none, pulley_or_later, geometry_or_later, or "
+            "spirit_level_or_later"
+        ),
+        "unit": "enum",
+    },
+}
+
+
 PLAYER_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     "player_id": {"description": "SHA1 of the player account", "unit": "id"},
     "snapshot_id": {"description": "Snapshot identifier, e.g. de_1311_14", "unit": "id"},
     "snapshot_date": {"description": "Date the snapshot was taken", "unit": "date"},
     "country_code": {"description": "Server country code", "unit": "iso2"},
     "registered_at_unix": {"description": "Player registration time", "unit": "unix_seconds"},
-    "registered_at": {"description": "Player registration time as string", "unit": "datetime"},
+    "registered_at": {"description": "Player registration timestamp in UTC", "unit": "datetime"},
     "gold": {"description": "Gold held by the player at this snapshot", "unit": "gold"},
     "research_points": {"description": "Research points accumulated", "unit": "points"},
     "government_form": {"description": "Government form enum from the raw avatar table", "unit": "enum"},
     "gender": {"description": "Gender flag from the raw avatar table", "unit": "enum"},
-    "account_age_days": {"description": "Account age at reference timestamp", "unit": "days"},
-    "account_age_adjustment_factor": {
-        "description": "Resource adjustment factor derived from account age",
-        "unit": "ratio",
+    "account_age_days": {
+        "description": (
+            "Calendar-day difference between the snapshot date and the UTC "
+            "registration date"
+        ),
+        "unit": "days",
     },
+    **RESEARCH_COST_ESTIMATE_DOCS,
     "island_count": {"description": "Distinct islands where this player has cities", "unit": "count"},
     "city_count": {"description": "Total cities owned by this player", "unit": "count"},
     "population_total": {"description": "Total population across this player's cities", "unit": "count"},
-    "wood_in_buildings": {"description": "Wood invested in buildings", "unit": "wood"},
-    "crystal_in_buildings": {"description": "Crystal invested in buildings", "unit": "crystal"},
-    "marble_in_buildings": {"description": "Marble invested in buildings", "unit": "marble"},
-    "sulfur_in_buildings": {"description": "Sulfur invested in buildings", "unit": "sulfur"},
-    "wine_in_buildings": {"description": "Wine invested in buildings", "unit": "wine"},
-    "resources_in_buildings_total": {"description": "All resources invested in buildings", "unit": "sum"},
-    "building_resource_score": {
-        "description": "Legacy Baumeister_Highscore resource total",
-        "unit": "sum",
-    },
-    "resources_stored_total": {"description": "All resources currently stored", "unit": "sum"},
-    "resources_in_buildings_and_storage_total": {
-        "description": "Built plus stored resource total",
-        "unit": "sum",
-    },
+    **_building_cost_docs("across this player's cities"),
+    **_stored_resource_docs("across this player's cities"),
+    **_estimated_resource_value_docs("across this player's cities"),
     "building_levels_total": {"description": "Sum of all building levels", "unit": "sum_levels"},
     "wonder_donations_total": {"description": "Donations to wonders", "unit": "gold"},
     "sawmill_donations_total": {"description": "Donations to sawmills", "unit": "gold"},
@@ -68,25 +171,10 @@ CITY_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     "resource_workers": {"description": "Number of workers in the sawmill", "unit": "count"},
     "tradegood_workers": {"description": "Number of workers in the luxury mine", "unit": "count"},
     "population_total": {"description": "Total population in the city", "unit": "count"},
-    "wood_in_buildings": {"description": "Wood invested in buildings in this city", "unit": "wood"},
-    "crystal_in_buildings": {"description": "Crystal invested in buildings in this city", "unit": "crystal"},
-    "marble_in_buildings": {"description": "Marble invested in buildings in this city", "unit": "marble"},
-    "sulfur_in_buildings": {"description": "Sulfur invested in buildings in this city", "unit": "sulfur"},
-    "wine_in_buildings": {"description": "Wine invested in buildings in this city", "unit": "wine"},
-    "resources_in_buildings_total": {"description": "Total resources invested in buildings in this city", "unit": "sum"},
-    "building_resource_score": {"description": "Baumeister score of this city", "unit": "sum"},
-    "wood_stored": {"description": "Stored wood in the city", "unit": "wood"},
-    "crystal_stored": {"description": "Stored crystal in the city", "unit": "crystal"},
-    "marble_stored": {"description": "Stored marble in the city", "unit": "marble"},
-    "sulfur_stored": {"description": "Stored sulfur in the city", "unit": "sulfur"},
-    "wine_stored": {"description": "Stored wine in the city", "unit": "wine"},
-    "resources_stored_total": {"description": "Total stored resources in this city", "unit": "sum"},
-    "wood_total": {"description": "Total wood (built + stored) in this city", "unit": "wood"},
-    "crystal_total": {"description": "Total crystal (built + stored) in this city", "unit": "crystal"},
-    "marble_total": {"description": "Total marble (built + stored) in this city", "unit": "marble"},
-    "sulfur_total": {"description": "Total sulfur (built + stored) in this city", "unit": "sulfur"},
-    "wine_total": {"description": "Total wine (built + stored) in this city", "unit": "wine"},
-    "resources_in_buildings_and_storage_total": {"description": "Total resources in buildings and storage in this city", "unit": "sum"},
+    **RESEARCH_COST_ESTIMATE_DOCS,
+    **_building_cost_docs("in this city"),
+    **_stored_resource_docs("in this city"),
+    **_estimated_resource_value_docs("in this city"),
     "building_levels_total": {"description": "Sum of all building levels in this city", "unit": "sum_levels"},
     "wonder_donations_total": {"description": "Wonder donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
     "sawmill_donations_total": {"description": "Sawmill donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
@@ -170,26 +258,11 @@ ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
         "unit": "count",
     },
     "population_total": {"description": "Total population across players", "unit": "count"},
-    "wood_in_buildings": {"description": "Wood invested by all players", "unit": "wood"},
-    "resources_in_buildings_total": {
-        "description": "All building resources invested by all players",
-        "unit": "sum",
-    },
-    "building_resource_score": {
-        "description": "Legacy Baumeister_Highscore resource total across players",
-        "unit": "sum",
-    },
-    "resources_stored_total": {"description": "Stored resources across players", "unit": "sum"},
-    "resources_in_buildings_and_storage_total": {
-        "description": "Built plus stored resources across players",
-        "unit": "sum",
-    },
+    **_building_cost_docs("across players on this island"),
+    **_stored_resource_docs("across players on this island"),
+    **_estimated_resource_value_docs("across players on this island"),
     "building_levels_total": {"description": "Sum of building levels across players", "unit": "sum_levels"},
     "avg_population_per_player": {"description": "Average population per player", "unit": "count"},
-    "avg_building_resource_score_per_player": {
-        "description": "Average building resource score per player",
-        "unit": "sum",
-    },
     "donating_player_count": {"description": "Players with donations at this snapshot", "unit": "count"},
     "wonder_donations_total": {"description": "Wonder donations", "unit": "gold"},
     "sawmill_donations_total": {"description": "Sawmill donations", "unit": "gold"},
@@ -229,13 +302,17 @@ DONATION_ANALYTICS_PLAYER_ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     "resource_workers_total": {"description": "Resource workers on this player-island", "unit": "count"},
     "tradegood_workers_total": {"description": "Luxury-mine workers on this player-island", "unit": "count"},
     "priests_total": {"description": "Priests on this player-island", "unit": "count"},
-    "wood_total": {"description": "Wood in buildings and storage on this player-island", "unit": "wood"},
-    "wine_total": {"description": "Wine in buildings and storage on this player-island", "unit": "wine"},
-    "marble_total": {"description": "Marble in buildings and storage on this player-island", "unit": "marble"},
-    "crystal_total": {"description": "Crystal in buildings and storage on this player-island", "unit": "crystal"},
-    "sulfur_total": {"description": "Sulfur in buildings and storage on this player-island", "unit": "sulfur"},
-    "resources_total": {"description": "All resources in buildings and storage on this player-island", "unit": "sum"},
-    "account_age_days": {"description": "Account age at reference timestamp", "unit": "days"},
+    **RESEARCH_COST_ESTIMATE_DOCS,
+    **_building_cost_docs("across this player's cities on this island"),
+    **_stored_resource_docs("across this player's cities on this island"),
+    **_estimated_resource_value_docs("across this player's cities on this island"),
+    "account_age_days": {
+        "description": (
+            "Calendar-day difference between the snapshot date and the UTC "
+            "registration date"
+        ),
+        "unit": "days",
+    },
     "island_donations_total": {"description": "All donations by players on this island", "unit": "gold"},
     "island_sawmill_donations_total": {"description": "Sawmill donations by players on this island", "unit": "gold"},
     "island_luxury_mine_donations_total": {"description": "Luxury-mine donations by players on this island", "unit": "gold"},
@@ -258,13 +335,52 @@ DONATION_ANALYTICS_PLAYER_ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     "sawmill_donations_per_resource_worker": {"description": "Sawmill donations divided by resource workers", "unit": "gold_per_worker"},
     "luxury_mine_donations_per_tradegood_worker": {"description": "Luxury-mine donations divided by luxury-mine workers", "unit": "gold_per_worker"},
     "wonder_donations_per_priest": {"description": "Wonder donations divided by priests", "unit": "gold_per_priest"},
-    "donations_per_account_age_day": {"description": "Donations divided by account age in days", "unit": "gold_per_day"},
-    "wood_donation_resource_share_pct": {"description": "Wood-linked donations divided by wood total plus those donations", "unit": "percent"},
-    "wine_wonder_donation_resource_share_pct": {"description": "Wine wonder allocation divided by wine total plus that allocation", "unit": "percent"},
-    "marble_wonder_donation_resource_share_pct": {"description": "Marble wonder allocation divided by marble total plus that allocation", "unit": "percent"},
-    "crystal_wonder_donation_resource_share_pct": {"description": "Crystal wonder allocation divided by crystal total plus that allocation", "unit": "percent"},
-    "sulfur_wonder_donation_resource_share_pct": {"description": "Sulfur wonder allocation divided by sulfur total plus that allocation", "unit": "percent"},
-    "donations_resource_share_pct": {"description": "Donations divided by resource total plus donations", "unit": "percent"},
+    "cumulative_donations_per_account_age_day": {
+        "description": "Cumulative donations divided by account age at this snapshot",
+        "unit": "gold_per_day",
+    },
+    "estimated_wood_donation_resource_share_pct": {
+        "description": (
+            "Wood-linked donations divided by a denominator of estimated wood resource "
+            "value plus those donations"
+        ),
+        "unit": "percent",
+    },
+    "estimated_wine_wonder_donation_resource_share_pct": {
+        "description": (
+            "Wine wonder allocation divided by a denominator of estimated wine resource "
+            "value plus that allocation"
+        ),
+        "unit": "percent",
+    },
+    "estimated_marble_wonder_donation_resource_share_pct": {
+        "description": (
+            "Marble wonder allocation divided by a denominator of estimated marble resource "
+            "value plus that allocation"
+        ),
+        "unit": "percent",
+    },
+    "estimated_crystal_wonder_donation_resource_share_pct": {
+        "description": (
+            "Crystal wonder allocation divided by a denominator of estimated crystal "
+            "resource value plus that allocation"
+        ),
+        "unit": "percent",
+    },
+    "estimated_sulfur_wonder_donation_resource_share_pct": {
+        "description": (
+            "Sulfur wonder allocation divided by a denominator of estimated sulfur resource "
+            "value plus that allocation"
+        ),
+        "unit": "percent",
+    },
+    "estimated_donations_resource_share_pct": {
+        "description": (
+            "Cumulative donations divided by a denominator of estimated total resource value "
+            "plus cumulative donations"
+        ),
+        "unit": "percent",
+    },
 }
 
 

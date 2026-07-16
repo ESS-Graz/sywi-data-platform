@@ -19,15 +19,25 @@ def test_island_upgrade_costs_match_sql_q23_tables():
             "tradegood": [2],
         }
     )
+    resources = ("wood", "crystal", "marble", "sulfur", "wine")
+    resource_metrics = {
+        **{f"building_base_cost_{resource}": [0.0] for resource in resources},
+        "building_base_cost_total": [0.0],
+        **{f"estimated_building_cost_{resource}": [0.0] for resource in resources},
+        "estimated_building_cost_total": [0.0],
+        **{f"{resource}_stored": [0.0] for resource in resources},
+        "resources_stored_total": [0.0],
+        **{f"estimated_{resource}_resource_value": [0.0] for resource in resources},
+        "estimated_resource_value_total": [0.0],
+    }
     city_player_island = pl.DataFrame(
         {
             "island_id": ["i1"],
             "snapshot_id": ["s1"],
             "owner_id": ["p1"],
             "Buerger_Ges": [1.0],
-            "Holz_verbaut": [2.0],
-            "Baumeister_Highscore": [3.0],
             "cities_on_island": [1],
+            **resource_metrics,
         }
     )
     donation_enriched = pl.DataFrame(

@@ -1,16 +1,9 @@
 from __future__ import annotations
 
-import math
 import os
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-
-
-@dataclass(frozen=True, slots=True)
-class DurationBand:
-    max_seconds: float
-    factor: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,11 +15,8 @@ class Snapshot:
 
 @dataclass(frozen=True, slots=True)
 class Config:
-    reference_timestamp: int
-    min_play_duration_days: int
     min_registration_time: int
     wonder_split_factor: float
-    duration_adjustments: tuple[DurationBand, ...]
     countries: tuple[str, ...]
     snapshots: tuple[Snapshot, ...]
     raw_data_dir: Path
@@ -53,15 +43,6 @@ def _resolve_path(value: str | Path) -> Path:
     return (project_root() / path).resolve()
 
 
-def _default_duration_bands() -> tuple[DurationBand, ...]:
-    return (
-        DurationBand(max_seconds=180000, factor=1.00),
-        DurationBand(max_seconds=1440000, factor=0.98),
-        DurationBand(max_seconds=13149000, factor=0.94),
-        DurationBand(max_seconds=math.inf, factor=0.86),
-    )
-
-
 def _discover_countries(raw_data_dir: Path) -> tuple[str, ...]:
     if not raw_data_dir.exists():
         return ()
@@ -85,11 +66,8 @@ def load_config() -> Config:
         resolved_lancedb_path = output_dir / "ikariam.lancedb"
 
     return Config(
-        reference_timestamp=1415923200,
-        min_play_duration_days=2,
         min_registration_time=1366797600,
         wonder_split_factor=0.666667,
-        duration_adjustments=_default_duration_bands(),
         countries=_discover_countries(raw_data_dir),
         snapshots=(),
         raw_data_dir=raw_data_dir,

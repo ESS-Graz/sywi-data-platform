@@ -12,6 +12,18 @@ import polars as pl
 
 from ..utils import safe_divide, safe_percent
 
+RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine")
+RESOURCE_COLUMNS: tuple[str, ...] = (
+    tuple(f"building_base_cost_{resource}" for resource in RESOURCE_NAMES)
+    + ("building_base_cost_total",)
+    + tuple(f"estimated_building_cost_{resource}" for resource in RESOURCE_NAMES)
+    + ("estimated_building_cost_total",)
+    + tuple(f"{resource}_stored" for resource in RESOURCE_NAMES)
+    + ("resources_stored_total",)
+    + tuple(f"estimated_{resource}_resource_value" for resource in RESOURCE_NAMES)
+    + ("estimated_resource_value_total",)
+)
+
 RESOURCE_COSTS: tuple[tuple[int, int], ...] = (
     (1, 394),
     (2, 992),
@@ -190,14 +202,17 @@ def enrich_islands(
         ),
     )
 
-    city_agg = city_player_island.group_by(["island_id", "snapshot_id"]).agg(
+    city_aggs: list[pl.Expr] = [
         pl.col("Buerger_Ges").sum().alias("total_citizens"),
-        pl.col("Holz_verbaut").sum().alias("total_holz_verbaut"),
-        pl.col("Baumeister_Highscore").sum().alias("total_baumeister"),
         pl.col("cities_on_island").sum().alias("calc_city_count"),
         pl.col("owner_id").n_unique().alias("unique_players"),
         pl.col("Buerger_Ges").mean().alias("avg_citizens_per_player"),
-        pl.col("Baumeister_Highscore").mean().alias("avg_baumeister_per_player"),
+    ]
+    city_aggs.extend(
+        pl.col(column).sum().alias(column) for column in RESOURCE_COLUMNS
+    )
+    city_agg = city_player_island.group_by(["island_id", "snapshot_id"]).agg(
+        city_aggs
     )
     df = df.join(
         city_agg,

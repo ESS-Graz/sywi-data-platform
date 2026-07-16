@@ -1,23 +1,19 @@
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import polars as pl
 import pytest
 
 from ikariam.processing import config as config_module
-from ikariam.processing.config import Config, DurationBand, load_config
+from ikariam.processing.config import Config, load_config
 from ikariam.processing.io_raw import discover_snapshots, load_raw_table
 
 
 def _cfg(raw_data_dir: Path) -> Config:
     return Config(
-        reference_timestamp=1415923200,
-        min_play_duration_days=2,
         min_registration_time=1366797600,
         wonder_split_factor=0.666667,
-        duration_adjustments=(DurationBand(math.inf, 1.0),),
         countries=("DE", "EN"),
         snapshots=(),
         raw_data_dir=raw_data_dir,

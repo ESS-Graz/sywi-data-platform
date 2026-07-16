@@ -5,9 +5,9 @@ collapse to latest. Raw input table names are preserved upstream, but these
 public outputs use canonical lower_snake_case names.
 
 No account-age filter or latest-snapshot collapse here: those are query-time
-concerns. The prelaunch player registration-time filter has already been
-applied to `raw.*` tables in `run_pipeline._filter_prelaunch_players`, so
-every row in the panels already comes from a valid player.
+concerns. The configured registration-cohort filter has already been applied
+by the upstream Dagster assets, so every row in the panels comes from a
+validated player.
 """
 
 from __future__ import annotations
@@ -15,6 +15,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import polars as pl
+
+
+RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine")
+RESOURCE_COLUMNS: tuple[str, ...] = (
+    tuple(f"building_base_cost_{resource}" for resource in RESOURCE_NAMES)
+    + ("building_base_cost_total",)
+    + tuple(f"estimated_building_cost_{resource}" for resource in RESOURCE_NAMES)
+    + ("estimated_building_cost_total",)
+    + tuple(f"{resource}_stored" for resource in RESOURCE_NAMES)
+    + ("resources_stored_total",)
+    + tuple(f"estimated_{resource}_resource_value" for resource in RESOURCE_NAMES)
+    + ("estimated_resource_value_total",)
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,13 +53,15 @@ def build_player_snapshot_table(
         "snapshot_date",
         pl.col("country").alias("country_code"),
         pl.col("registration_time").alias("registered_at_unix"),
-        pl.col("Registration_time_normal").alias("registered_at"),
+        "registered_at",
         "gold",
         "research_points",
         pl.col("formOfGovernment").alias("government_form"),
         "gender",
-        pl.col("Spieldauer").alias("account_age_days"),
-        pl.col("duration_adjustment").alias("account_age_adjustment_factor"),
+        "account_age_days",
+        "estimated_research_cost_factor",
+        "estimated_research_cost_factor_source",
+        "research_evidence_tier",
     )
 
     city_agg = city3_av.select(
@@ -55,15 +70,7 @@ def build_player_snapshot_table(
         pl.col("total_islands").alias("island_count"),
         pl.col("total_cities").alias("city_count"),
         pl.col("Buerger_Ges").alias("population_total"),
-        pl.col("Holz_verbaut").alias("wood_in_buildings"),
-        pl.col("Kristall_verbaut").alias("crystal_in_buildings"),
-        pl.col("Stein_verbaut").alias("marble_in_buildings"),
-        pl.col("Schwefel_verbaut").alias("sulfur_in_buildings"),
-        pl.col("Wein_verbaut").alias("wine_in_buildings"),
-        pl.col("Res_Ges_verbaut").alias("resources_in_buildings_total"),
-        pl.col("Baumeister_Highscore").alias("building_resource_score"),
-        pl.col("Res_Ges_lagernd").alias("resources_stored_total"),
-        pl.col("Res_Ges_verb_lag").alias("resources_in_buildings_and_storage_total"),
+        *RESOURCE_COLUMNS,
         pl.col("Geblev").alias("building_levels_total"),
     )
     base = base.join(city_agg, on=["player_id", "snapshot_id"], how="left")
@@ -85,7 +92,13 @@ def build_player_snapshot_table(
         [
             pl.col(c).fill_null(0)
             for c, dt in zip(base.columns, base.dtypes, strict=True)
-            if dt.is_numeric() and c not in {"registered_at_unix"}
+            if dt.is_numeric()
+            and c
+            not in {
+                "registered_at_unix",
+                "account_age_days",
+                "estimated_research_cost_factor",
+            }
         ]
     )
     return base.sort(["player_id", "snapshot_date", "snapshot_id"])
@@ -116,25 +129,10 @@ def build_city_snapshot_table(
         "resource_workers",
         "tradegood_workers",
         pl.col("Buerger_Ges").alias("population_total"),
-        pl.col("Holz_verbaut").alias("wood_in_buildings"),
-        pl.col("Kristall_verbaut").alias("crystal_in_buildings"),
-        pl.col("Stein_verbaut").alias("marble_in_buildings"),
-        pl.col("Schwefel_verbaut").alias("sulfur_in_buildings"),
-        pl.col("Wein_verbaut").alias("wine_in_buildings"),
-        pl.col("Res_Ges_verbaut").alias("resources_in_buildings_total"),
-        pl.col("Baumeister_Highscore").alias("building_resource_score"),
-        pl.col("Holz_lagernd").alias("wood_stored"),
-        pl.col("Kristall_lagernd").alias("crystal_stored"),
-        pl.col("Stein_lagernd").alias("marble_stored"),
-        pl.col("Schwefel_lagernd").alias("sulfur_stored"),
-        pl.col("Wein_lagernd").alias("wine_stored"),
-        pl.col("Res_Ges_lagernd").alias("resources_stored_total"),
-        pl.col("Holz_Ges_verb_lag").alias("wood_total"),
-        pl.col("Kristall_Ges_verb_lag").alias("crystal_total"),
-        pl.col("Stein_Ges_verb_lag").alias("marble_total"),
-        pl.col("Schwefel_Ges_verb_lag").alias("sulfur_total"),
-        pl.col("Wein_Ges_verb_lag").alias("wine_total"),
-        pl.col("Res_Ges_verb_lag").alias("resources_in_buildings_and_storage_total"),
+        "estimated_research_cost_factor",
+        "estimated_research_cost_factor_source",
+        "research_evidence_tier",
+        *RESOURCE_COLUMNS,
         pl.col("Geblev").alias("building_levels_total"),
     )
 
@@ -176,6 +174,9 @@ def build_city_snapshot_table(
             pl.col(c).fill_null(0)
             for c, dt in zip(base.columns, base.dtypes, strict=True)
             if dt.is_numeric()
+            and c != "estimated_research_cost_factor"
+            and not c.startswith("estimated_building_cost_")
+            and not c.startswith("estimated_")
         ]
     )
     return base.sort(["city_id", "snapshot_date", "snapshot_id"])
@@ -223,16 +224,9 @@ def build_island_snapshot_table(
         pl.col("total_players").alias("player_count"),
         pl.col("total_cities").alias("city_count"),
         pl.col("Buerger_Ges").alias("population_total"),
-        pl.col("Holz_verbaut").alias("wood_in_buildings"),
-        pl.col("Res_Ges_verbaut").alias("resources_in_buildings_total"),
-        pl.col("Baumeister_Highscore").alias("building_resource_score"),
-        pl.col("Res_Ges_lagernd").alias("resources_stored_total"),
-        pl.col("Res_Ges_verb_lag").alias("resources_in_buildings_and_storage_total"),
+        *RESOURCE_COLUMNS,
         pl.col("Geblev").alias("building_levels_total"),
         pl.col("Avg_Buerger_per_player").alias("avg_population_per_player"),
-        pl.col("Avg_Baumeister_per_player").alias(
-            "avg_building_resource_score_per_player"
-        ),
     )
     base = base.join(city_agg, on=["island_id", "snapshot_id"], how="left")
 
