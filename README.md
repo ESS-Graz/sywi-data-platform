@@ -116,8 +116,10 @@ This is useful when working on a single project and wanting faster startup times
 #### Raw Input Files
 
 Raw files that feed pipelines should live under `data/raw/<project>/` instead of
-inside project packages. The `data/` directory is ignored by Git and mounted into
-Docker services as read-only raw input storage.
+inside project packages. The `data/` directory is mounted into Docker services as
+read-only raw input storage and is ignored by Git, except for small,
+hand-maintained lookup tables that `.gitignore` re-includes by name (currently
+`data/raw/ikariam/building_costs.csv`).
 
 For example, Ikariam expects:
 
