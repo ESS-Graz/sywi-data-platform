@@ -132,6 +132,8 @@ def build_city_snapshot_table(
         "estimated_research_cost_factor",
         "estimated_research_cost_factor_source",
         "research_evidence_tier",
+        *(f"{resource}_reduction_building_level" for resource in RESOURCE_NAMES),
+        *(f"estimated_{resource}_cost_factor" for resource in RESOURCE_NAMES),
         *RESOURCE_COLUMNS,
         pl.col("Geblev").alias("building_levels_total"),
     )

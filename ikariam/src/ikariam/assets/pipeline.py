@@ -7,7 +7,7 @@ from ikariam.processing.config import get_config
 from ikariam.processing.io_files import read_building_costs
 from ikariam.processing.io_lance import partition_raw_tables_by_country, write_lancedb
 from ikariam.processing.io_raw import load_raw_table
-from ikariam.processing.transforms.building_costs import join_building_costs
+from ikariam.processing.transforms.building_costs import add_building_base_costs
 from ikariam.processing.transforms.city_agg import aggregate_to_player_island
 from ikariam.processing.transforms.city_metrics import compute_city_metrics
 from ikariam.processing.transforms.donation_analytics import (
@@ -136,7 +136,7 @@ def city_with_costs(
     filtered_city: pl.DataFrame,
     building_costs: pl.DataFrame,
 ) -> pl.DataFrame:
-    df = join_building_costs(filtered_city, building_costs)
+    df = add_building_base_costs(filtered_city, building_costs)
     _add_df_metadata(context, df)
     return df
 

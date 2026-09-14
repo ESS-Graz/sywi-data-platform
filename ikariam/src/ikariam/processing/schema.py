@@ -39,9 +39,10 @@ def _building_cost_docs(scope: str) -> dict[str, dict[str, str]]:
         {
             f"estimated_building_cost_{resource}": {
                 "description": (
-                    f"Estimated {resource} cost of the buildings currently present {scope}, "
-                    "using the estimated research cost factor; this is not observed "
-                    "historical expenditure"
+                    f"Counterfactual {resource} cost of the buildings currently present "
+                    f"{scope} under this snapshot's estimated research reduction and the "
+                    f"observed {resource} reduction-building level of each building's "
+                    "city; not observed historical expenditure"
                 ),
                 "unit": unit,
             }
@@ -50,12 +51,49 @@ def _building_cost_docs(scope: str) -> dict[str, dict[str, str]]:
     )
     docs["estimated_building_cost_total"] = {
         "description": (
-            f"Total estimated resource cost of the buildings currently present {scope}, "
-            "using the estimated research cost factor; this is not observed historical "
-            "expenditure"
+            "Sum of the five counterfactual resource costs of the buildings currently "
+            f"present {scope}; not observed historical expenditure"
         ),
         "unit": "sum",
     }
+    return docs
+
+
+_REDUCTION_BUILDING_NAMES: dict[str, str] = {
+    "wood": "Carpenter",
+    "marble": "Architect's Office",
+    "crystal": "Optician",
+    "wine": "Wine Press",
+    "sulfur": "Firework Test Area",
+}
+
+
+def _reduction_building_docs() -> dict[str, dict[str, str]]:
+    docs = {
+        f"{resource}_reduction_building_level": {
+            "description": (
+                f"Observed level of this city's {building} at this snapshot, 0 when "
+                f"absent; each level lowers this city's {resource} building costs by one "
+                "percentage point and is not carried into other snapshots"
+            ),
+            "unit": "level",
+        }
+        for resource, building in _REDUCTION_BUILDING_NAMES.items()
+    }
+    docs.update(
+        {
+            f"estimated_{resource}_cost_factor": {
+                "description": (
+                    f"Estimated payable {resource} building-cost multiplier in this city at "
+                    "this snapshot: 1 minus the estimated research reduction minus 0.01 per "
+                    f"{building} level; between 0.54 and 1.00 under the historical "
+                    "level-32 limit"
+                ),
+                "unit": "ratio",
+            }
+            for resource, building in _REDUCTION_BUILDING_NAMES.items()
+        }
+    )
     return docs
 
 
@@ -96,8 +134,11 @@ def _estimated_resource_value_docs(scope: str) -> dict[str, dict[str, str]]:
 RESEARCH_COST_ESTIMATE_DOCS: dict[str, dict[str, str]] = {
     "estimated_research_cost_factor": {
         "description": (
-            "Estimated building-cost multiplier: the stronger of the snapshot-age "
-            "heuristic and research evidence observed in this or an earlier snapshot"
+            "Estimated research component of the building-cost multiplier, shared by "
+            "all of the player's cities: the stronger of the snapshot-age heuristic and "
+            "research evidence observed in this or an earlier snapshot; city payable "
+            "factors that also include local reduction buildings are "
+            "city_snapshot.estimated_<resource>_cost_factor"
         ),
         "unit": "ratio",
     },
@@ -172,6 +213,7 @@ CITY_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     "tradegood_workers": {"description": "Number of workers in the luxury mine", "unit": "count"},
     "population_total": {"description": "Total population in the city", "unit": "count"},
     **RESEARCH_COST_ESTIMATE_DOCS,
+    **_reduction_building_docs(),
     **_building_cost_docs("in this city"),
     **_stored_resource_docs("in this city"),
     **_estimated_resource_value_docs("in this city"),
