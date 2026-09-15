@@ -114,7 +114,7 @@ def generate_compose(projects: list[str]) -> dict:
                 "./data:/opt/dagster/app/data",
                 RAW_DATA_VOLUME,
             ],
-            "ports": ["3000:3000"],
+            "ports": ["127.0.0.1:3000:3000"],
             "depends_on": {
                 "postgresql": {"condition": "service_healthy"},
                 "dagster_daemon": {"condition": "service_started"},

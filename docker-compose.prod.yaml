@@ -62,7 +62,7 @@ services:
     - ./data:/opt/dagster/app/data
     - ./data/raw:/opt/dagster/app/data/raw:ro
     ports:
-    - 3000:3000
+    - 127.0.0.1:3000:3000
     depends_on:
       postgresql:
         condition: service_healthy
