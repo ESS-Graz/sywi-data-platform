@@ -15,12 +15,10 @@ def _cfg(raw_data_dir: Path) -> Config:
         min_registration_time=1366797600,
         wonder_split_factor=0.666667,
         countries=("DE", "EN"),
-        snapshots=(),
         raw_data_dir=raw_data_dir,
         building_costs_path=raw_data_dir / "building_costs.csv",
         output_dir=raw_data_dir / "output",
         lancedb_path=raw_data_dir / "output" / "ikariam.lancedb",
-        output_delimiter=";",
     )
 
 

@@ -1,7 +1,7 @@
 """File-level I/O for CSV inputs stored alongside the raw extracts.
 
-Outputs are written to LanceDB / DuckDB — see `io_lance.py` and
-`build_views.py`. No CSV writes remain in v2.
+`building_costs.csv` is the only CSV the pipeline reads; all outputs are
+written to LanceDB — see `io_lance.py`.
 """
 
 from __future__ import annotations

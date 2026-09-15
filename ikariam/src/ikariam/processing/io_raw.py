@@ -11,6 +11,7 @@ from .config import Config, Snapshot
 
 RAW_TABLES: tuple[str, ...] = ("avatar", "city", "donation", "island")
 
+
 def snapshot_id_for(country: str, snapshot_date: date) -> str:
     return f"{country.lower()}_{snapshot_date:%d%m_%y}"
 
@@ -23,7 +24,13 @@ def discover_snapshots(raw_data_dir: Path, countries: tuple[str, ...]) -> tuple[
             raise FileNotFoundError(f"Missing raw data directory for country {country}: {country_dir}")
 
         for snapshot_dir in sorted(p for p in country_dir.iterdir() if p.is_dir()):
-            snapshot_date = date.fromisoformat(snapshot_dir.name)
+            try:
+                snapshot_date = date.fromisoformat(snapshot_dir.name)
+            except ValueError as exc:
+                raise ValueError(
+                    "Snapshot directories must be named as ISO dates (YYYY-MM-DD); "
+                    f"found {snapshot_dir}"
+                ) from exc
             snapshots.append(
                 Snapshot(
                     snapshot_id=snapshot_id_for(country, snapshot_date),
@@ -39,8 +46,8 @@ def _snapshot_dir(raw_data_dir: Path, snapshot: Snapshot) -> Path:
     return raw_data_dir / snapshot.country.lower() / snapshot.snapshot_date.isoformat()
 
 
-def _read_table(snapshot_dir: Path, snapshot: Snapshot, table: str) -> pl.DataFrame:
-    path = snapshot_dir / f"{table}.parquet"
+def _read_table(raw_data_dir: Path, snapshot: Snapshot, table: str) -> pl.DataFrame:
+    path = _snapshot_dir(raw_data_dir, snapshot) / f"{table}.parquet"
     if not path.exists():
         raise FileNotFoundError(f"Missing raw parquet: {path}")
 
@@ -60,10 +67,13 @@ def load_raw_table(cfg: Config, table: str) -> pl.DataFrame:
             f"{cfg.raw_data_dir}/<country>/<snapshot_date>/*.parquet"
         )
 
-    frames: list[pl.DataFrame] = []
-    for snapshot in discover_snapshots(cfg.raw_data_dir, cfg.countries):
-        frames.append(_read_table(_snapshot_dir(cfg.raw_data_dir, snapshot), snapshot, table))
-
+    frames = [
+        _read_table(cfg.raw_data_dir, snapshot, table)
+        for snapshot in discover_snapshots(cfg.raw_data_dir, cfg.countries)
+    ]
     if not frames:
-        raise FileNotFoundError(f"No {table}.parquet files found under {cfg.raw_data_dir}")
+        raise FileNotFoundError(
+            "No snapshot directories found for countries "
+            f"{', '.join(cfg.countries)} under {cfg.raw_data_dir}"
+        )
     return pl.concat(frames, how="diagonal_relaxed")

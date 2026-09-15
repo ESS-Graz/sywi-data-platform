@@ -18,12 +18,10 @@ class Config:
     min_registration_time: int
     wonder_split_factor: float
     countries: tuple[str, ...]
-    snapshots: tuple[Snapshot, ...]
     raw_data_dir: Path
     building_costs_path: Path
     output_dir: Path
     lancedb_path: Path
-    output_delimiter: str
 
 
 def project_root() -> Path:
@@ -66,15 +64,15 @@ def load_config() -> Config:
         resolved_lancedb_path = output_dir / "ikariam.lancedb"
 
     return Config(
+        # 2013-04-24 10:00 UTC, the day before the first snapshot (2013-04-25):
+        # keeps only players whose registration falls inside the observed window.
         min_registration_time=1366797600,
-        wonder_split_factor=0.666667,
+        wonder_split_factor=0.666667,  # 2/3, rounded; see transforms/donations.py
         countries=_discover_countries(raw_data_dir),
-        snapshots=(),
         raw_data_dir=raw_data_dir,
         building_costs_path=raw_data_dir / "building_costs.csv",
         output_dir=output_dir,
         lancedb_path=resolved_lancedb_path,
-        output_delimiter=";",
     )
 
 
