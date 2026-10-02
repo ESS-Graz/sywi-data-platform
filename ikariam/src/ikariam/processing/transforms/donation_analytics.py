@@ -15,6 +15,10 @@ from __future__ import annotations
 import polars as pl
 
 from ..utils import safe_divide, safe_percent
+from .construction_events import (
+    CONSTRUCTION_SUM_COLUMNS,
+    observed_construction_coverage_expr,
+)
 
 
 RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine")
@@ -27,6 +31,7 @@ RESOURCE_COLUMNS: tuple[str, ...] = (
     + ("resources_stored_total",)
     + tuple(f"estimated_{resource}_resource_value" for resource in RESOURCE_NAMES)
     + ("estimated_resource_value_total",)
+    + CONSTRUCTION_SUM_COLUMNS
 )
 
 
@@ -103,6 +108,7 @@ def build_donation_analytics_player_island_snapshot(
         and column not in {"account_age_days", "estimated_research_cost_factor"}
     ]
     result = result.with_columns(pl.col(column).fill_null(0) for column in numeric_fill_columns)
+    result = result.with_columns(observed_construction_coverage_expr())
 
     island_keys = ["country_code", "snapshot_id", "island_id"]
     result = result.with_columns(

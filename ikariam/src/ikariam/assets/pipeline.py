@@ -10,6 +10,13 @@ from ikariam.processing.io_raw import load_raw_table
 from ikariam.processing.transforms.building_costs import add_building_base_costs
 from ikariam.processing.transforms.city_agg import aggregate_to_player_island
 from ikariam.processing.transforms.city_metrics import compute_city_metrics
+from ikariam.processing.transforms.construction_events import (
+    attach_city_construction,
+    build_construction_events,
+    build_demolition_events,
+    build_slot_panel,
+    summarize_city_construction,
+)
 from ikariam.processing.transforms.donation_analytics import (
     build_donation_analytics_player_island_snapshot,
 )
@@ -170,12 +177,68 @@ def city_enriched(
     return df
 
 
+@asset(group_name=PUBLIC_GROUP)
+def building_construction_event(
+    context: AssetExecutionContext,
+    city_enriched: pl.DataFrame,
+    building_costs: pl.DataFrame,
+) -> pl.DataFrame:
+    """One row per building level ever constructed.
+
+    Each level is priced at the discount state active in the interval where it
+    appeared, rather than at the player's current factor.
+    """
+    df = build_construction_events(
+        build_slot_panel(city_enriched), city_enriched, building_costs
+    )
+    _add_df_metadata(context, df)
+    return df
+
+
+@asset(group_name=PUBLIC_GROUP)
+def building_demolition_event(
+    context: AssetExecutionContext,
+    city_enriched: pl.DataFrame,
+    building_construction_event: pl.DataFrame,
+) -> pl.DataFrame:
+    """One row per building level that stopped standing.
+
+    Each removed level carries the value it held at that moment, so standing
+    totals lose exactly what they previously gained.
+    """
+    df = build_demolition_events(
+        build_slot_panel(city_enriched), building_construction_event
+    )
+    _add_df_metadata(context, df)
+    return df
+
+
+@asset(group_name=TRANSFORM_GROUP)
+def city_construction(
+    context: AssetExecutionContext,
+    city_enriched: pl.DataFrame,
+    building_construction_event: pl.DataFrame,
+    building_demolition_event: pl.DataFrame,
+) -> pl.DataFrame:
+    """Per city-snapshot standing building value and lifetime construction spend."""
+    df = summarize_city_construction(
+        build_slot_panel(city_enriched),
+        building_construction_event,
+        building_demolition_event,
+    )
+    _add_df_metadata(context, df)
+    return df
+
+
 @asset(group_name=TRANSFORM_GROUP)
 def city_player_island(
     context: AssetExecutionContext,
     city_enriched: pl.DataFrame,
+    city_construction: pl.DataFrame,
 ) -> pl.DataFrame:
-    df = aggregate_to_player_island(city_enriched)
+    df = aggregate_to_player_island(
+        attach_city_construction(city_enriched, city_construction)
+    )
     _add_df_metadata(context, df)
     return df
 
@@ -280,6 +343,7 @@ def player_snapshot(
 def city_snapshot(
     context: AssetExecutionContext,
     city_enriched: pl.DataFrame,
+    city_construction: pl.DataFrame,
     donation_enriched: pl.DataFrame,
     island_enriched: pl.DataFrame,
 ) -> pl.DataFrame:
@@ -293,7 +357,7 @@ def city_snapshot(
     When aggregating player-island level columns (such as donations), use MAX instead of SUM to avoid double-counting.
     """
     df = build_city_snapshot_table(
-        city_enriched,
+        attach_city_construction(city_enriched, city_construction),
         donation_enriched,
         island_enriched,
     )
@@ -331,6 +395,8 @@ def ikariam_lancedb(
     city_snapshot: pl.DataFrame,
     island_snapshot: pl.DataFrame,
     donation_analytics_player_island_snapshot: pl.DataFrame,
+    building_construction_event: pl.DataFrame,
+    building_demolition_event: pl.DataFrame,
 ) -> MaterializeResult:
     """Delete and rebuild LanceDB with public and country-partitioned raw tables."""
     public_tables = {
@@ -338,6 +404,8 @@ def ikariam_lancedb(
         "city_snapshot": city_snapshot,
         "island_snapshot": island_snapshot,
         "donation_analytics_player_island_snapshot": donation_analytics_player_island_snapshot,
+        "building_construction_event": building_construction_event,
+        "building_demolition_event": building_demolition_event,
     }
     raw_tables = partition_raw_tables_by_country(
         {
@@ -374,6 +442,9 @@ ALL_ASSETS = [
     city_with_costs,
     player_enriched,
     city_enriched,
+    building_construction_event,
+    building_demolition_event,
+    city_construction,
     city_player_island,
     donation_enriched,
     island_enriched,

@@ -61,6 +61,69 @@ def _building_cost_docs(scope: str) -> dict[str, dict[str, str]]:
     return docs
 
 
+def _construction_docs(scope: str) -> dict[str, dict[str, str]]:
+    """Vintage-priced construction measures; see `_building_cost_docs` for the
+    undiscounted and current-factor families they sit alongside."""
+    docs = {
+        f"historical_building_cost_{resource}": {
+            "description": (
+                f"Estimated {resource} actually paid for the buildings standing "
+                f"{scope}, with each level priced at the discount state active in "
+                "the interval when it appeared instead of the current factor"
+            ),
+            "unit": unit,
+        }
+        for resource, unit in _RESOURCE_UNITS.items()
+    }
+    docs["historical_building_cost_total"] = {
+        "description": (
+            "Total estimated resources actually paid for the buildings standing "
+            f"{scope}, each level priced at its own vintage"
+        ),
+        "unit": "sum",
+    }
+    docs.update(
+        {
+            f"lifetime_construction_spend_{resource}": {
+                "description": (
+                    f"Estimated {resource} paid for every building level ever "
+                    f"constructed {scope}, including levels later demolished; "
+                    "never decreases over a trajectory"
+                ),
+                "unit": unit,
+            }
+            for resource, unit in _RESOURCE_UNITS.items()
+        }
+    )
+    docs["lifetime_construction_spend_total"] = {
+        "description": (
+            "Total estimated resources paid for every building level ever "
+            f"constructed {scope}, including levels later demolished; the gap to "
+            "historical_building_cost_total is what demolition wrote off"
+        ),
+        "unit": "sum",
+    }
+    docs["opening_stock_base_cost_total"] = {
+        "description": (
+            "Undiscounted base cost of the standing levels that were already "
+            "present the first time their building was observed. Their build "
+            "interval is unknown, so they are priced at that first observation's "
+            "factor rather than a bracketed midpoint"
+        ),
+        "unit": "sum",
+    }
+    docs["observed_construction_coverage"] = {
+        "description": (
+            "Share of this row's standing building value that could be dated to "
+            "an observed interval: 1 minus opening_stock_base_cost_total divided "
+            "by building_base_cost_total. Lower values rest more on the opening-"
+            "stock assumption"
+        ),
+        "unit": "ratio",
+    }
+    return docs
+
+
 _REDUCTION_BUILDING_NAMES: dict[str, str] = {
     "wood": "Carpenter",
     "marble": "Architect's Office",
@@ -187,6 +250,7 @@ PLAYER_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     **_building_cost_docs("across this player's cities"),
     **_stored_resource_docs("across this player's cities"),
     **_estimated_resource_value_docs("across this player's cities"),
+    **_construction_docs("across this player's cities"),
     "building_levels_total": {"description": "Sum of all building levels, including town halls", "unit": "sum_levels"},
     "wonder_donations_total": {"description": "Donations to wonders", "unit": "gold"},
     "sawmill_donations_total": {"description": "Donations to sawmills", "unit": "gold"},
@@ -219,6 +283,7 @@ CITY_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     **_building_cost_docs("in this city"),
     **_stored_resource_docs("in this city"),
     **_estimated_resource_value_docs("in this city"),
+    **_construction_docs("in this city"),
     "building_levels_total": {"description": "Sum of all building levels in this city, including the town hall", "unit": "sum_levels"},
     "wonder_donations_total": {"description": "Wonder donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
     "sawmill_donations_total": {"description": "Sawmill donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
@@ -305,6 +370,7 @@ ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     **_building_cost_docs("across players on this island"),
     **_stored_resource_docs("across players on this island"),
     **_estimated_resource_value_docs("across players on this island"),
+    **_construction_docs("across players on this island"),
     "building_levels_total": {"description": "Sum of building levels across players, including town halls", "unit": "sum_levels"},
     "avg_population_per_player": {"description": "Average population per player", "unit": "count"},
     "donating_player_count": {"description": "Players with donations at this snapshot", "unit": "count"},
@@ -350,6 +416,7 @@ DONATION_ANALYTICS_PLAYER_ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     **_building_cost_docs("across this player's cities on this island"),
     **_stored_resource_docs("across this player's cities on this island"),
     **_estimated_resource_value_docs("across this player's cities on this island"),
+    **_construction_docs("across this player's cities on this island"),
     "account_age_days": {
         "description": (
             "Calendar-day difference between the snapshot date and the UTC "
@@ -428,6 +495,124 @@ DONATION_ANALYTICS_PLAYER_ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
 }
 
 
+_EVENT_IDENTITY_DOCS: dict[str, dict[str, str]] = {
+    "country_code": {"description": "Server country code", "unit": "iso2"},
+    "city_id": {"description": "SHA1 of the city", "unit": "id"},
+    "position": {
+        "description": (
+            "Building position 1-17, or 0 for the town hall, which occupies no "
+            "numbered slot and is tracked by the city's own level column"
+        ),
+        "unit": "enum",
+    },
+    "building_type": {"description": "Game building type id from the raw slot data", "unit": "enum"},
+    "building_level": {
+        "description": "The single building level this row accounts for",
+        "unit": "level",
+    },
+}
+
+
+BUILDING_CONSTRUCTION_EVENT_DOCS: dict[str, dict[str, str]] = {
+    **_EVENT_IDENTITY_DOCS,
+    "built_by_snapshot_id": {
+        "description": "Snapshot by which this level was present",
+        "unit": "id",
+    },
+    "built_by_snapshot_date": {
+        "description": "Date of the snapshot by which this level was present",
+        "unit": "date",
+    },
+    "built_after_snapshot_date": {
+        "description": (
+            "Date of the previous observation of this position; the level appeared "
+            "between this date and built_by_snapshot_date. Null when the level was "
+            "already present at first sighting"
+        ),
+        "unit": "date",
+    },
+    "is_opening_stock": {
+        "description": (
+            "True when the level was already there the first time this building was "
+            "observed, so it cannot be dated and is priced at that first "
+            "observation's factor"
+        ),
+        "unit": "boolean",
+    },
+    **{
+        f"factor_{resource}": {
+            "description": (
+                f"Applied {resource} cost multiplier: the midpoint of this city's "
+                f"{resource} factor at the two bracketing observations"
+            ),
+            "unit": "ratio",
+        }
+        for resource in _RESOURCE_UNITS
+    },
+    **{
+        f"level_cost_{resource}": {
+            "description": (
+                f"Undiscounted {resource} cost of this one level: the cumulative "
+                "lookup value minus the level below it"
+            ),
+            "unit": unit,
+        }
+        for resource, unit in _RESOURCE_UNITS.items()
+    },
+    **{
+        f"paid_cost_{resource}": {
+            "description": (
+                f"Estimated {resource} paid for this level: level_cost_{resource} "
+                f"times factor_{resource}"
+            ),
+            "unit": unit,
+        }
+        for resource, unit in _RESOURCE_UNITS.items()
+    },
+}
+
+
+BUILDING_DEMOLITION_EVENT_DOCS: dict[str, dict[str, str]] = {
+    **_EVENT_IDENTITY_DOCS,
+    "removed_by_snapshot_id": {
+        "description": "Snapshot by which this level no longer stood",
+        "unit": "id",
+    },
+    "removed_at_snapshot_date": {
+        "description": "Date of the snapshot by which this level no longer stood",
+        "unit": "date",
+    },
+    "built_by_snapshot_date": {
+        "description": (
+            "Date of the construction event this removal reverses, so the level is "
+            "written off at the value it actually carried"
+        ),
+        "unit": "date",
+    },
+    "is_opening_stock": {
+        "description": "True when the removed level came from undatable opening stock",
+        "unit": "boolean",
+    },
+    **{
+        f"level_cost_{resource}": {
+            "description": f"Undiscounted {resource} cost of the removed level",
+            "unit": unit,
+        }
+        for resource, unit in _RESOURCE_UNITS.items()
+    },
+    **{
+        f"paid_cost_{resource}": {
+            "description": (
+                f"Estimated {resource} that had been paid for the removed level, "
+                "withdrawn from the standing total"
+            ),
+            "unit": unit,
+        }
+        for resource, unit in _RESOURCE_UNITS.items()
+    },
+}
+
+
 RAW_COMMON_DOCS: dict[str, dict[str, str]] = {
     "snapshot_id": {"description": "Snapshot identifier, e.g. de_1311_14", "unit": "id"},
     "snapshot_date": {"description": "Date the snapshot was taken", "unit": "date"},
@@ -440,6 +625,8 @@ TABLE_DOCS: dict[str, dict[str, dict[str, str]]] = {
     "city_snapshot": CITY_SNAPSHOT_DOCS,
     "island_snapshot": ISLAND_SNAPSHOT_DOCS,
     "donation_analytics_player_island_snapshot": DONATION_ANALYTICS_PLAYER_ISLAND_SNAPSHOT_DOCS,
+    "building_construction_event": BUILDING_CONSTRUCTION_EVENT_DOCS,
+    "building_demolition_event": BUILDING_DEMOLITION_EVENT_DOCS,
     "raw_avatar": RAW_COMMON_DOCS,
     "raw_city": RAW_COMMON_DOCS,
     "raw_donation": RAW_COMMON_DOCS,
@@ -466,6 +653,18 @@ TABLE_DESCRIPTIONS: dict[str, str] = {
         "One row per (player, island, snapshot). Contains donation totals, "
         "denominators, intensity ratios, composition shares, and island peer "
         "averages without legacy database-wide broadcast constants."
+    ),
+    "building_construction_event": (
+        "One row per building level ever constructed, per city. Each level is "
+        "priced at the discount state active in the interval when it appeared, so "
+        "summing paid_cost_* reproduces lifetime_construction_spend_*. This is the "
+        "audit trail behind the historical cost columns on the snapshot tables."
+    ),
+    "building_demolition_event": (
+        "One row per building level that stopped standing, valued at the amount it "
+        "had been paid for. Standing value equals construction minus demolition, so "
+        "this table explains every gap between historical_building_cost_* and "
+        "lifetime_construction_spend_*."
     ),
     "raw_avatar": "Raw avatar parquet rows, exported as one LanceDB table per country.",
     "raw_city": "Raw city parquet rows, exported as one LanceDB table per country.",

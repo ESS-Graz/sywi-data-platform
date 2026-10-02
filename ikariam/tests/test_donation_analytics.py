@@ -67,6 +67,21 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
             "estimated_sulfur_resource_value": [50.0, 5.0],
             "estimated_wine_resource_value": [20.0, 5.0],
             "estimated_resource_value_total": [240.0, 40.0],
+            # Vintage-priced construction measures; p1 is 90% of base cost with
+            # 18 of its 180 base cost undatable opening stock.
+            "historical_building_cost_wood": [72.0, 13.5],
+            "historical_building_cost_crystal": [27.0, 0.0],
+            "historical_building_cost_marble": [18.0, 0.0],
+            "historical_building_cost_sulfur": [36.0, 0.0],
+            "historical_building_cost_wine": [9.0, 0.0],
+            "historical_building_cost_total": [162.0, 13.5],
+            "lifetime_construction_spend_wood": [75.0, 13.5],
+            "lifetime_construction_spend_crystal": [27.0, 0.0],
+            "lifetime_construction_spend_marble": [18.0, 0.0],
+            "lifetime_construction_spend_sulfur": [36.0, 0.0],
+            "lifetime_construction_spend_wine": [9.0, 0.0],
+            "lifetime_construction_spend_total": [165.0, 13.5],
+            "opening_stock_base_cost_total": [18.0, 0.0],
         }
     )
     player_enriched = pl.DataFrame(
@@ -98,6 +113,10 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
     assert row["island_donations_total"] == 150.0
     assert row["island_avg_donations_per_player"] == 75.0
     assert row["island_peer_donations_avg"] == 50.0
+    assert row["historical_building_cost_total"] == 162.0
+    assert row["lifetime_construction_spend_total"] == 165.0
+    # Recomputed from this row's own totals, not carried through aggregation.
+    assert row["observed_construction_coverage"] == pytest.approx(1 - 18 / 180)
     assert row["donations_minus_island_peer_avg"] == 50.0
     assert row["sawmill_donation_share_pct"] == 40.0
     assert row["luxury_mine_donation_share_pct"] == 30.0

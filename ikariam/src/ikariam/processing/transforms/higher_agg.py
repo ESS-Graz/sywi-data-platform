@@ -12,6 +12,7 @@ from __future__ import annotations
 import polars as pl
 
 from ..utils import safe_percent
+from .construction_events import CONSTRUCTION_SUM_COLUMNS
 
 
 RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine")
@@ -24,6 +25,7 @@ RESOURCE_COLUMNS: tuple[str, ...] = (
     + ("resources_stored_total",)
     + tuple(f"estimated_{resource}_resource_value" for resource in RESOURCE_NAMES)
     + ("estimated_resource_value_total",)
+    + CONSTRUCTION_SUM_COLUMNS
 )
 
 

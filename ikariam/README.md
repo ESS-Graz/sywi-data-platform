@@ -11,6 +11,11 @@ All raw snapshot data is aggregated and cleaned into four primary snapshot table
 - `island_snapshot` (grain: one row per island per snapshot)
 - `donation_analytics_player_island_snapshot` (grain: one row per player, island, and snapshot)
 
+Two event ledgers record construction history at a finer grain:
+
+- `building_construction_event` (grain: one row per building level ever constructed)
+- `building_demolition_event` (grain: one row per building level that stopped standing)
+
 ## Data Denormalization & Normalization Philosophy
 
 To support rich analytical workloads, we deliberately choose a denormalized design for the `city_snapshot` table:
@@ -52,6 +57,30 @@ concepts:
 The estimate is not historical expenditure. Use
 `estimated_research_cost_factor`, `estimated_research_cost_factor_source`, and
 `research_evidence_tier` to identify how it was inferred.
+
+## Vintage-Priced Construction
+
+`estimated_building_cost_*` applies one *current* factor to every level, which
+credits today's discounts to buildings raised before those discounts existed.
+Two further columns price each level at the discount state active when it was
+actually built, reconstructed from consecutive snapshots:
+
+- `historical_building_cost_*` — paid for the levels **still standing**.
+- `lifetime_construction_spend_*` — paid for **every level ever built**,
+  including levels later demolished, so it never decreases.
+
+A level that appears between two snapshots is priced at the midpoint of the
+city's factor at those two observations; the exact moment within the interval is
+not observable. Standing value is accounted for as construction minus
+demolition, so a later rebuild never changes an earlier snapshot's value.
+
+Levels already present the first time a building is seen cannot be dated. They
+are priced at that first observation's factor and reported separately via
+`opening_stock_base_cost_total`; `observed_construction_coverage` gives the
+datable share of each row (97.2% value-weighted across the current data).
+
+Both measures aggregate by plain summation at every grain. Coverage is a ratio
+and is recomputed per row rather than summed.
 
 ## Reconstructing Dropped Summary and Latest Tables
 

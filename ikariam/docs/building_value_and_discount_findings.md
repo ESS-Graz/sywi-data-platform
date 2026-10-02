@@ -32,6 +32,9 @@ The implemented panel model is:
    snapshot, publishing the levels and resulting per-resource factors.
 6. Keep stored resources separate and combine them with the estimate only in
    explicitly named `estimated_*_resource_value` fields.
+7. Price each building level at the discount state active when it was built,
+   publishing `historical_building_cost_*` for the levels still standing and
+   `lifetime_construction_spend_*` for every level ever paid for.
 
 ## Data provenance
 
@@ -371,6 +374,95 @@ Built reducer slots: 207,626 Carpenter, 113,956 Architect's Office, 15,744
 Optician, 44,861 Wine Press, and 12,282 Firework Test Area. The 161 reducer
 slots with a type but level 0 are treated as absent, like every level-0 slot.
 
+## Vintage-priced construction
+
+The cumulative estimate above still applies one current factor to a player's
+whole building stock. The implemented replacement reconstructs the individual
+building levels from consecutive snapshots and prices each level at the
+discount state active when it appeared.
+
+### Method
+
+Each city position is followed across snapshots. A level that is absent at one
+observation and present at the next was built somewhere in between, so it
+becomes one row in `building_construction_event`. The exact moment inside that
+interval is unknowable, so the applied factor is the **midpoint** of the city's
+factor at the two bracketing observations. Start and end bounds were considered
+and rejected: a published interval that researchers misread is worse than a
+single documented point estimate.
+
+The residual error is therefore bounded by one interval's change in discount
+state, instead of by the player's whole history. The previous approach could
+misattribute up to 46 percentage points (14 research plus a level-32 reducer)
+to levels built before either existed.
+
+### Flow accounting, never revaluation
+
+Standing value is computed as a flow:
+
+```text
+standing value = everything paid for  -  everything torn down
+```
+
+A first implementation instead valued every level at its *latest* vintage. That
+made a level demolished and rebuilt more cheaply reduce the value recorded for
+*earlier* snapshots, letting the future rewrite the past. Aggregates looked
+plausible because rebuilds are rare; only a hand-checked unit test caught it.
+Removed levels are now written off at the value they actually carried, in
+`building_demolition_event`, so earlier snapshots never change.
+
+### The two published measures
+
+- `historical_building_cost_*`: what was paid for the levels still standing.
+- `lifetime_construction_spend_*`: what was paid for every level ever built,
+  including levels later demolished. It never decreases, which makes it the
+  monotonic development measure the legacy metric failed to be.
+
+### Results across the 36 snapshots
+
+| Measure, summed over all city-snapshot rows | Total | Share of list price |
+| --- | ---: | ---: |
+| Undiscounted base (list price) | 418,911,056,561 | 100.0% |
+| Vintage-priced standing value | 302,086,328,821 | 72.1% |
+| Previous estimate, current factor on all levels | 278,898,472,739 | 66.6% |
+| Lifetime construction spend | 304,505,307,489 | 72.7% |
+
+These are panel sums: each city's cumulative total is counted once per
+snapshot, so they express **average ratios**, not quantities of resources.
+Standing buildings were paid for at 72.1% of list price on average, against
+66.6% under the previous estimate, which therefore understated standing
+building value by 8.3%.
+
+The one-time resource quantities come from the event ledgers, which hold one
+row per building level rather than one row per level per snapshot:
+
+| Quantity | Resources |
+| --- | ---: |
+| Paid for every building level ever constructed | 38,520,663,046 |
+| Written off by demolition | 418,891,292 (1.1%) |
+| Still standing at each city's last observation | 38,101,771,754 |
+
+The ledgers hold 3,538,847 construction rows and 102,745 demolition rows.
+
+Reconstruction is verified rather than assumed: replaying every level in the
+ledger, and subtracting every removal, reproduces `building_base_cost_total`
+for all 333,885 city-snapshot rows with a maximum absolute difference of zero.
+
+### What limits the accuracy
+
+- 95.9% of final building value is observable as construction events. The
+  dataset opens at or near server launch, with 1,487 players holding exactly
+  one city each, so little predates our view. The remainder is reported as
+  `opening_stock_base_cost_total`; value-weighted coverage is 97.2%.
+- Snapshot gaps run from 5 to 63 days, mean 16.2, so intervals are uneven.
+- 52.5% of built value arrives in multi-level jumps whose internal order is
+  unknowable.
+- The research factor changed across only 3.8% of built value, so research
+  timing is nearly settled. Reduction-building levels changed across 50.6%,
+  which is where the remaining ambiguity lives.
+- `observed_construction_coverage` exposes the datable share per row, so an
+  analysis can exclude poorly observed cities.
+
 ## Snapshot-relative account age
 
 The reviewed implementation used the fixed Unix timestamp `1415923200`
@@ -553,6 +645,10 @@ building_type;building_level;cost_holz;cost_quartz;cost_kristall;cost_wein;cost_
 9. Include the town hall in the base-cost and building-level totals by joining
    lookup type 1 on the city's `level` column, since it occupies no numbered
    building position (implemented).
+10. Derive construction value from per-level events priced at their own vintage
+    rather than applying one current factor to a cumulative total, and account
+    for standing value as construction minus demolition so that earlier
+    snapshots are never revalued (implemented).
 
 ## Remaining analytical questions
 

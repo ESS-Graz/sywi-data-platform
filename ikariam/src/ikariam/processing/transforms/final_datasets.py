@@ -16,6 +16,11 @@ from dataclasses import dataclass
 
 import polars as pl
 
+from .construction_events import (
+    CONSTRUCTION_SUM_COLUMNS,
+    observed_construction_coverage_expr,
+)
+
 
 RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine")
 RESOURCE_COLUMNS: tuple[str, ...] = (
@@ -27,6 +32,7 @@ RESOURCE_COLUMNS: tuple[str, ...] = (
     + ("resources_stored_total",)
     + tuple(f"estimated_{resource}_resource_value" for resource in RESOURCE_NAMES)
     + ("estimated_resource_value_total",)
+    + CONSTRUCTION_SUM_COLUMNS
 )
 
 
@@ -101,6 +107,7 @@ def build_player_snapshot_table(
             }
         ]
     )
+    base = base.with_columns(observed_construction_coverage_expr())
     return base.sort(["player_id", "snapshot_date", "snapshot_id"])
 
 
@@ -181,6 +188,7 @@ def build_city_snapshot_table(
             and not c.startswith("estimated_")
         ]
     )
+    base = base.with_columns(observed_construction_coverage_expr())
     return base.sort(["city_id", "snapshot_date", "snapshot_id"])
 
 
@@ -252,6 +260,7 @@ def build_island_snapshot_table(
             if dt.is_numeric()
         ]
     )
+    base = base.with_columns(observed_construction_coverage_expr())
     return base.sort(["island_id", "snapshot_date", "snapshot_id"])
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import polars as pl
 
 from ..utils import safe_percent
+from .construction_events import CONSTRUCTION_SUM_COLUMNS
 
 RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine")
 RESOURCE_SUM_COLUMNS: tuple[str, ...] = (
@@ -23,7 +24,7 @@ SUM_COLUMNS: tuple[str, ...] = (
     "Buerger_Ges", "Resworkers_Holz_Lux",
     "Geblev", "Rathauslev", "GovReslev",
     "capital",
-) + RESOURCE_SUM_COLUMNS
+) + RESOURCE_SUM_COLUMNS + CONSTRUCTION_SUM_COLUMNS
 
 FIRST_COLUMNS: tuple[str, ...] = (
     "snapshot_date", "country",
