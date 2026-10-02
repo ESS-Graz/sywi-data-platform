@@ -30,7 +30,11 @@ MIN_ESTIMATED_COST_FACTOR = (
 
 
 def _level_cols() -> list[pl.Expr]:
-    return [pl.col(f"p{i}l") for i in range(1, 18)]
+    """Slot levels, counted only where the position actually holds a building."""
+    return [
+        pl.when(pl.col(f"p{i}t") > 0).then(pl.col(f"p{i}l")).otherwise(0)
+        for i in range(1, 18)
+    ]
 
 
 def compute_city_metrics(
@@ -177,7 +181,9 @@ def compute_city_metrics(
         (pl.col("resource_workers") + pl.col("tradegood_workers")).alias("Resworkers_Holz_Lux"),
     )
     df = df.with_columns(
-        pl.sum_horizontal(_level_cols()).alias("Geblev"),
+        # Building levels include the town hall, which has no numbered slot and
+        # is also published separately as town_hall_level.
+        (pl.sum_horizontal(_level_cols()) + pl.col("level")).alias("Geblev"),
         pl.col("level").alias("Rathauslev"),
         pl.lit(0, dtype=pl.Int64).alias("GovReslev"),
     )

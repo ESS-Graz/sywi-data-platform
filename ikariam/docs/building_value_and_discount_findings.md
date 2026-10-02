@@ -20,7 +20,8 @@ discount to building levels constructed before that research was completed.
 The implemented panel model is:
 
 1. Preserve `building_base_cost_*` as the factual, undiscounted value of the
-   buildings currently present.
+   buildings currently present, including the town hall, whose level is the
+   city's own `level` column rather than a numbered building slot.
 2. Calculate `account_age_days` independently at each snapshot.
 3. Expose a separate `estimated_building_cost_*` family as a rebuilding-cost
    proxy, never as observed historical expenditure.
@@ -93,6 +94,38 @@ wine, and sulphur directly, without the former 85 per-position cost columns.
 The lookup values are cumulative. For example, the value for level 10 is the
 sum of the construction costs for levels 1 through 10, not only the cost of the
 level-10 upgrade.
+
+### Why the town hall is handled separately
+
+The town hall is the one building that occupies no numbered position. In the
+game it is the city's central building: always present, and not built, moved,
+or demolished the way slot buildings are. The export mirrors that structure, so
+its level is the city row's own `level` column and never appears as a
+`p{n}t` / `p{n}l` pair.
+
+The lookup still prices it as building type 1, which is why type 1 carries a
+full 48-level cost curve that no `p{n}t` value ever matches. A reshape over the
+17 positions alone therefore silently drops every city's largest building, and
+the resulting total contradicts the documented meaning of
+`building_base_cost_*`, "buildings currently present". The transform closes
+that gap by folding the town hall in as an extra position-0 slot of type 1,
+keyed on `level`, so it passes through the same lookup join, the same
+missing-cost validation, and the same per-city sum as every other building.
+
+Three independent checks identify `level` as the town hall level:
+
+- the pipeline's own naming: `Rathauslev` in `city_metrics.py`, published as
+  `town_hall_level`;
+- type 1 is priced in the lookup but never occupies a slot in any of the
+  334,060 city rows;
+- observed `level` values run 0-35, entirely inside type 1's 1-48 curve.
+
+Including it raises the base-cost totals across all 36 snapshots by 20.8%:
+wood by 18.3% and marble by 37.9%, the only two resources a town hall costs.
+Crystal, sulphur, and wine are unchanged. A `level` of 0 means no town hall and
+contributes nothing, the same rule already applied to level-0 slot buildings.
+`building_levels_total` counts the town hall level for the same reason, while
+`town_hall_level` continues to publish it on its own.
 
 ## What the calculation cannot measure
 
@@ -320,8 +353,9 @@ following evidence.
   end at exactly level 32, the pre-8.8.0 reduction-building limit.
 - The observed ID set is 3-31 with gaps at 1, 2, and 14. Type 1 carries a
   town-hall cost curve in the lookup but never occupies a building slot,
-  because the town hall's level is the separate `level` column; those lookup
-  rows are simply unused.
+  because the town hall's level is the separate `level` column. Those rows are
+  not unused: the transform joins them on `level`, as described in
+  [Why the town hall is handled separately](#why-the-town-hall-is-handled-separately).
 
 What remains unproven is only the name-level link: no game artifact states
 that type 23 is the Carpenter. That rests on the community cost tables, now on
@@ -516,6 +550,9 @@ building_type;building_level;cost_holz;cost_quartz;cost_kristall;cost_wein;cost_
    base-cost fields with an age-derived value.
 8. Carry positive building evidence forward only; never infer it backward from
    a future observation.
+9. Include the town hall in the base-cost and building-level totals by joining
+   lookup type 1 on the city's `level` column, since it occupies no numbered
+   building position (implemented).
 
 ## Remaining analytical questions
 

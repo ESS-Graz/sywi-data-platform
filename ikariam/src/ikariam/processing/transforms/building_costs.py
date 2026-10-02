@@ -5,6 +5,10 @@ The raw city export stores 17 building positions as wide ``p{n}t`` (type) and
 one lookup join, and aggregates the five resource costs back to the city row.
 The same normalized positions provide each city's observed level of the five
 resource-reduction buildings.
+
+The town hall occupies no numbered position -- its level is the separate
+``level`` column -- so it is folded in as an extra position-0 slot of building
+type 1, which carries the town hall cost curve in the lookup.
 """
 
 from __future__ import annotations
@@ -36,6 +40,18 @@ REDUCTION_BUILDING_TYPES: dict[str, int] = {
 }
 # Reducers were capped at level 32 until version 8.8.0 (2022).
 HISTORICAL_REDUCTION_BUILDING_MAX_LEVEL = 32
+
+# The town hall is the city's central building: always present, and never built
+# into one of the 17 numbered positions, so the export carries its level in the
+# city row's own ``level`` column rather than a ``p{n}t`` / ``p{n}l`` pair. The
+# lookup still prices it as type 1, which is why type 1 has a full cost curve
+# that no slot value ever matches. Folding it in as a position-0 slot keeps it
+# inside the same join, validation, and per-city sum as every other building;
+# omitting it understated wood by 18.3% and marble by 37.9%. See
+# docs/building_value_and_discount_findings.md, "Why the town hall is handled
+# separately".
+TOWN_HALL_BUILDING_TYPE = 1
+TOWN_HALL_LEVEL_COLUMN = "level"
 REDUCTION_LEVEL_COLUMNS: dict[str, str] = {
     resource: f"{resource}_reduction_building_level"
     for resource in REDUCTION_BUILDING_TYPES
@@ -45,7 +61,11 @@ REDUCTION_LEVEL_COLUMNS: dict[str, str] = {
 def add_building_base_costs(
     city_raw: pl.DataFrame, building_costs: pl.DataFrame
 ) -> pl.DataFrame:
-    """Add five cumulative base-cost totals and five reducer levels to every city row."""
+    """Add five cumulative base-cost totals and five reducer levels to every city row.
+
+    Costs cover the 17 numbered building positions plus the town hall, whose
+    level is the city row's ``level`` column rather than a numbered slot.
+    """
     position_columns = [
         f"p{position}{kind}"
         for position in range(1, POSITION_COUNT + 1)
@@ -56,6 +76,8 @@ def add_building_base_costs(
         raise ValueError(
             f"Missing building position columns: {missing_position_columns}"
         )
+    if TOWN_HALL_LEVEL_COLUMN not in city_raw.columns:
+        raise ValueError(f"Missing town hall level column: {TOWN_HALL_LEVEL_COLUMN}")
 
     lookup_columns = [*LOOKUP_KEYS, *(source for source, _ in COST_COLUMNS)]
     missing_lookup_columns = sorted(set(lookup_columns) - set(building_costs.columns))
@@ -73,7 +95,8 @@ def add_building_base_costs(
         raise ValueError(f"Duplicate building cost lookups: {duplicate_pairs}")
 
     cities = city_raw.with_columns(
-        pl.col(column).cast(pl.Int64) for column in position_columns
+        *(pl.col(column).cast(pl.Int64) for column in position_columns),
+        pl.col(TOWN_HALL_LEVEL_COLUMN).cast(pl.Int64).fill_null(0),
     ).with_row_index("_city_row")
 
     slots = pl.concat(
@@ -85,6 +108,15 @@ def add_building_base_costs(
                 pl.col(f"p{position}l").alias("building_level"),
             )
             for position in range(1, POSITION_COUNT + 1)
+        ]
+        + [
+            # Position 0 stands for the town hall, which has no numbered slot.
+            cities.select(
+                "_city_row",
+                pl.lit(0).alias("position"),
+                pl.lit(TOWN_HALL_BUILDING_TYPE, dtype=pl.Int64).alias("building_type"),
+                pl.col(TOWN_HALL_LEVEL_COLUMN).alias("building_level"),
+            )
         ]
     )
     negative_levels = slots.filter(pl.col("building_level") < 0)

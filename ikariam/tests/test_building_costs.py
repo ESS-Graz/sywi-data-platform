@@ -12,7 +12,10 @@ from ikariam.processing.transforms.building_costs import (
 
 def _city(**positions: list[int | None]) -> pl.DataFrame:
     row_count = len(next(iter(positions.values()), [0]))
-    data: dict[str, list[int | None]] = {"id": list(range(1, row_count + 1))}
+    data: dict[str, list[int | None]] = {
+        "id": list(range(1, row_count + 1)),
+        "level": positions.get("level", [0] * row_count),
+    }
     for position in range(1, 18):
         data[f"p{position}t"] = positions.get(f"p{position}t", [0] * row_count)
         data[f"p{position}l"] = positions.get(f"p{position}l", [0] * row_count)
@@ -25,10 +28,17 @@ def _costs() -> pl.DataFrame:
         for building_type in range(23, 28)
         for level in range(1, 33)
     ]
+    # Town hall (type 1): 1000 wood and 500 marble per level, so a level-N town
+    # hall is easy to recognise in an assertion.
+    town_hall_rows = [
+        (1, level, 1000.0 * level, 0.0, 500.0 * level, 0.0, 0.0)
+        for level in range(1, 49)
+    ]
     rows = [
         (3, 2, 100.0, 20.0, 30.0, 40.0, 50.0),
         (9, 4, 10.0, 2.0, 3.0, 4.0, 5.0),
         *reducer_rows,
+        *town_hall_rows,
     ]
     return pl.DataFrame(
         rows,
@@ -70,6 +80,32 @@ def test_zero_type_or_level_is_a_zero_cost_slot() -> None:
 
     cost_columns = [column for column in result.columns if column.startswith("building_base_cost_")]
     assert result.select(pl.sum_horizontal(cost_columns)).item() == 0
+
+
+def test_town_hall_level_adds_its_cost_from_the_level_column() -> None:
+    result = add_building_base_costs(_city(p1t=[3], p1l=[2], level=[3]), _costs())
+
+    cost_columns = [column for column in result.columns if column.startswith("building_base_cost_")]
+    # Slot (3, 2) contributes 100 wood / 30 marble; town hall (1, 3) adds
+    # 3000 wood / 1500 marble.
+    assert result.select(cost_columns).row(0) == (3100.0, 20.0, 1530.0, 40.0, 50.0)
+
+
+def test_town_hall_level_zero_adds_no_cost() -> None:
+    result = add_building_base_costs(_city(p1t=[3], p1l=[2], level=[0]), _costs())
+
+    cost_columns = [column for column in result.columns if column.startswith("building_base_cost_")]
+    assert result.select(cost_columns).row(0) == (100.0, 20.0, 30.0, 40.0, 50.0)
+
+
+def test_missing_town_hall_cost_lookup_raises() -> None:
+    with pytest.raises(ValueError, match=r"Missing building cost lookups: \(1, 49\)"):
+        add_building_base_costs(_city(level=[49]), _costs())
+
+
+def test_missing_town_hall_level_column_raises() -> None:
+    with pytest.raises(ValueError, match="Missing town hall level column: level"):
+        add_building_base_costs(_city().drop("level"), _costs())
 
 
 def test_missing_position_column_raises() -> None:

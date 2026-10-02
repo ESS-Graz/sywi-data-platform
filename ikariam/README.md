@@ -40,7 +40,9 @@ registration date. Building costs are intentionally split into distinct
 concepts:
 
 - `building_base_cost_*` is the undiscounted cumulative lookup cost of the
-  buildings visible in that snapshot.
+  buildings visible in that snapshot. This includes the town hall, whose level
+  is the city's own `level` column rather than one of the 17 numbered building
+  slots; `building_levels_total` counts it too.
 - `estimated_building_cost_*` applies the player-snapshot research factor
   inferred from age and cumulative building evidence.
 - `*_stored` remains the observed inventory, while

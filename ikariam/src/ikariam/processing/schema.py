@@ -22,7 +22,7 @@ def _building_cost_docs(scope: str) -> dict[str, dict[str, str]]:
         f"building_base_cost_{resource}": {
             "description": (
                 f"Undiscounted cumulative base {resource} cost of buildings "
-                f"currently present {scope}"
+                f"currently present {scope}, including the town hall"
             ),
             "unit": unit,
         }
@@ -31,7 +31,7 @@ def _building_cost_docs(scope: str) -> dict[str, dict[str, str]]:
     docs["building_base_cost_total"] = {
         "description": (
             f"Total undiscounted cumulative base-resource cost of buildings "
-            f"currently present {scope}"
+            f"currently present {scope}, including the town hall"
         ),
         "unit": "sum",
     }
@@ -40,7 +40,8 @@ def _building_cost_docs(scope: str) -> dict[str, dict[str, str]]:
             f"estimated_building_cost_{resource}": {
                 "description": (
                     f"Counterfactual {resource} cost of the buildings currently present "
-                    f"{scope} under this snapshot's estimated research reduction and the "
+                    f"{scope}, including the town hall, under this snapshot's estimated "
+                    f"research reduction and the "
                     f"observed {resource} reduction-building level of each building's "
                     "city; not observed historical expenditure"
                 ),
@@ -52,7 +53,8 @@ def _building_cost_docs(scope: str) -> dict[str, dict[str, str]]:
     docs["estimated_building_cost_total"] = {
         "description": (
             "Sum of the five counterfactual resource costs of the buildings currently "
-            f"present {scope}; not observed historical expenditure"
+            f"present {scope}, including the town hall; not observed historical "
+            "expenditure"
         ),
         "unit": "sum",
     }
@@ -185,7 +187,7 @@ PLAYER_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     **_building_cost_docs("across this player's cities"),
     **_stored_resource_docs("across this player's cities"),
     **_estimated_resource_value_docs("across this player's cities"),
-    "building_levels_total": {"description": "Sum of all building levels", "unit": "sum_levels"},
+    "building_levels_total": {"description": "Sum of all building levels, including town halls", "unit": "sum_levels"},
     "wonder_donations_total": {"description": "Donations to wonders", "unit": "gold"},
     "sawmill_donations_total": {"description": "Donations to sawmills", "unit": "gold"},
     "luxury_mine_donations_total": {"description": "Donations to luxury mines", "unit": "gold"},
@@ -217,7 +219,7 @@ CITY_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     **_building_cost_docs("in this city"),
     **_stored_resource_docs("in this city"),
     **_estimated_resource_value_docs("in this city"),
-    "building_levels_total": {"description": "Sum of all building levels in this city", "unit": "sum_levels"},
+    "building_levels_total": {"description": "Sum of all building levels in this city, including the town hall", "unit": "sum_levels"},
     "wonder_donations_total": {"description": "Wonder donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
     "sawmill_donations_total": {"description": "Sawmill donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
     "luxury_mine_donations_total": {"description": "Luxury mine donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
@@ -303,7 +305,7 @@ ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     **_building_cost_docs("across players on this island"),
     **_stored_resource_docs("across players on this island"),
     **_estimated_resource_value_docs("across players on this island"),
-    "building_levels_total": {"description": "Sum of building levels across players", "unit": "sum_levels"},
+    "building_levels_total": {"description": "Sum of building levels across players, including town halls", "unit": "sum_levels"},
     "avg_population_per_player": {"description": "Average population per player", "unit": "count"},
     "donating_player_count": {"description": "Players with donations at this snapshot", "unit": "count"},
     "wonder_donations_total": {"description": "Wonder donations", "unit": "gold"},
@@ -340,7 +342,7 @@ DONATION_ANALYTICS_PLAYER_ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     "island_city_count": {"description": "Cities on this island across all players", "unit": "count"},
     "population_total": {"description": "Population in this player's cities on this island", "unit": "count"},
     "town_hall_levels_total": {"description": "Sum of town hall levels on this player-island", "unit": "sum_levels"},
-    "building_levels_total": {"description": "Sum of building levels on this player-island", "unit": "sum_levels"},
+    "building_levels_total": {"description": "Sum of building levels on this player-island, including town halls", "unit": "sum_levels"},
     "resource_workers_total": {"description": "Resource workers on this player-island", "unit": "count"},
     "tradegood_workers_total": {"description": "Luxury-mine workers on this player-island", "unit": "count"},
     "priests_total": {"description": "Priests on this player-island", "unit": "count"},

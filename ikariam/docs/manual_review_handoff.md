@@ -17,9 +17,11 @@ correct**. The existing discrepancies are documented, not resolved. Do not
 reopen that investigation unless requested or new evidence requires it.
 
 The building-cost calculation is sound under that assumption: it measures the
-undiscounted cumulative base cost of buildings currently present. It does not
-measure lifetime expenditure; buildings can be demolished and past discount
-states are not observable.
+undiscounted cumulative base cost of buildings currently present, including the
+town hall, which is priced from the city's own `level` column because it
+occupies no numbered building position. It does not measure lifetime
+expenditure; buildings can be demolished and past discount states are not
+observable.
 
 ## Git state
 

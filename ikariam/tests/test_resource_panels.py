@@ -39,6 +39,7 @@ def _cities(*overrides: dict[str, object]) -> pl.DataFrame:
             "tradegood3": 3,
             "tradegood4": 4,
             "level": 7,
+            **{f"p{position}t": 3 if position == 1 else 0 for position in range(1, 18)},
             **{f"p{position}l": 1 if position == 1 else 0 for position in range(1, 18)},
             **{f"building_base_cost_{resource}": cost for resource, cost in BASE_COSTS.items()},
             **{column: 0 for column in REDUCTION_LEVEL_COLUMNS.values()},
@@ -202,6 +203,8 @@ def test_building_cost_and_city_metric_steps_share_reducer_columns() -> None:
             pl.lit(2).alias("p1l"),
             pl.lit(23).alias("p2t"),
             pl.lit(2).alias("p2l"),
+            # No town hall here; its cost is covered by its own tests.
+            pl.lit(0).alias("level"),
         )
     )
     costs = pl.DataFrame(
@@ -225,3 +228,49 @@ def test_building_cost_and_city_metric_steps_share_reducer_columns() -> None:
     assert row["estimated_wood_cost_factor"] == 0.84
     assert row["estimated_building_cost_wood"] == pytest.approx(92.4)
     assert row["estimated_building_cost_total"] == pytest.approx(178.4)
+
+
+def test_town_hall_cost_and_level_flow_into_city_metrics() -> None:
+    raw_city = (
+        _cities()
+        .drop(
+            *(f"building_base_cost_{resource}" for resource in RESOURCES),
+            *REDUCTION_LEVEL_COLUMNS.values(),
+        )
+        .with_columns(pl.lit(0).alias(f"p{position}t") for position in range(1, 18))
+        .with_columns(pl.lit(0).alias(f"p{position}l") for position in range(1, 18))
+    )
+    # Every numbered slot is empty, so the town hall at level 7 is the only
+    # building this city owns.
+    costs = pl.DataFrame(
+        {
+            "building_type": [1],
+            "building_level": [7],
+            "cost_holz": [500.0],
+            "cost_kristall": [0.0],
+            "cost_quartz": [250.0],
+            "cost_schwefel": [0.0],
+            "cost_wein": [0.0],
+        }
+    )
+
+    row = compute_city_metrics(add_building_base_costs(raw_city, costs), _player()).row(
+        0, named=True
+    )
+
+    assert row["building_base_cost_wood"] == 500.0
+    assert row["building_base_cost_marble"] == 250.0
+    assert row["building_base_cost_total"] == 750.0
+    assert row["estimated_building_cost_wood"] == pytest.approx(430.0)
+    assert row["Geblev"] == 7
+    assert row["Rathauslev"] == 7
+
+
+def test_building_levels_count_only_occupied_slots_plus_town_hall() -> None:
+    row = compute_city_metrics(
+        _cities({"p1t": 3, "p1l": 4, "p2t": 0, "p2l": 5, "level": 6}), _player()
+    ).row(0, named=True)
+
+    # 4 from the occupied slot, 6 from the town hall; the level-5 reading on the
+    # empty position 2 is not a building and is ignored.
+    assert row["Geblev"] == 10

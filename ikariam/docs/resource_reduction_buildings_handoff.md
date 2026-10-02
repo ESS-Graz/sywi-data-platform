@@ -100,7 +100,8 @@ level cannot have discounted the upgrade that created that level.
 
 Keep the following concepts separate:
 
-- `building_base_cost_*`: undiscounted cumulative cost from the lookup; primary
+- `building_base_cost_*`: undiscounted cumulative cost from the lookup,
+  including the town hall priced from the city's `level` column; primary
   comparable building-stock measure.
 - `estimated_building_cost_*`: optional snapshot-state discounted rebuild
   estimate; model-derived, not observed expenditure.
