@@ -14,19 +14,17 @@ import polars as pl
 def read_building_costs(path: Path) -> pl.DataFrame:
     """Load `building_costs.csv` (semicolon-delimited)."""
     df = pl.read_csv(path, separator=";", encoding="utf8")
-    expected = {
-        "building_type", "building_level",
+    key_columns = ["building_type", "building_level"]
+    cost_columns = [
         "cost_holz", "cost_quartz", "cost_kristall", "cost_wein", "cost_schwefel",
-    }
-    missing = expected - set(df.columns)
+    ]
+    missing = set(key_columns + cost_columns) - set(df.columns)
     if missing:
         raise ValueError(f"building_costs missing columns: {missing}")
+    empty = [c for c in key_columns + cost_columns if df.get_column(c).null_count()]
+    if empty:
+        raise ValueError(f"building_costs has empty cells in: {empty}")
     return df.with_columns(
-        pl.col("building_type").cast(pl.Int64),
-        pl.col("building_level").cast(pl.Int64),
-        pl.col("cost_holz").cast(pl.Float64).fill_null(0.0),
-        pl.col("cost_quartz").cast(pl.Float64).fill_null(0.0),
-        pl.col("cost_kristall").cast(pl.Float64).fill_null(0.0),
-        pl.col("cost_wein").cast(pl.Float64).fill_null(0.0),
-        pl.col("cost_schwefel").cast(pl.Float64).fill_null(0.0),
+        pl.col(key_columns).cast(pl.Int64),
+        pl.col(cost_columns).cast(pl.Float64),
     )

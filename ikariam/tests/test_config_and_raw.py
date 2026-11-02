@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import polars as pl
@@ -7,6 +8,7 @@ import pytest
 
 from ikariam.processing import config as config_module
 from ikariam.processing.config import Config, load_config
+from ikariam.processing.io_files import read_building_costs
 from ikariam.processing.io_raw import discover_snapshots, load_raw_table
 
 
@@ -88,3 +90,28 @@ def test_config_rejects_uppercase_country_directories(monkeypatch, tmp_path: Pat
 
     with pytest.raises(ValueError, match="Country directories must be lowercase: DE"):
         load_config()
+
+
+def test_raw_loader_rejects_snapshots_with_different_columns(tmp_path: Path):
+    raw_root = tmp_path / "ikariam"
+    _write_snapshot(raw_root, "de", "2013-04-25")
+    later = raw_root / "de" / "2013-05-02"
+    later.mkdir(parents=True)
+    pl.DataFrame({"id": ["de-player"]}).write_parquet(later / "avatar.parquet")
+
+    cfg = replace(_cfg(raw_root), countries=("DE",))
+    with pytest.raises(ValueError, match="in de_0205_13 does not match de_2504_13"):
+        load_raw_table(cfg, "avatar")
+
+
+def test_building_costs_rejects_empty_cells(tmp_path: Path):
+    path = tmp_path / "building_costs.csv"
+    path.write_text(
+        "building_type;building_level;"
+        "cost_holz;cost_quartz;cost_kristall;cost_wein;cost_schwefel\n"
+        "1;2;158;;0;0;0\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=r"empty cells in: \['cost_quartz'\]"):
+        read_building_costs(path)

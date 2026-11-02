@@ -67,13 +67,22 @@ def load_raw_table(cfg: Config, table: str) -> pl.DataFrame:
             f"{cfg.raw_data_dir}/<country>/<snapshot_date>/*.parquet"
         )
 
-    frames = [
-        _read_table(cfg.raw_data_dir, snapshot, table)
-        for snapshot in discover_snapshots(cfg.raw_data_dir, cfg.countries)
-    ]
-    if not frames:
+    snapshots = discover_snapshots(cfg.raw_data_dir, cfg.countries)
+    if not snapshots:
         raise FileNotFoundError(
             "No snapshot directories found for countries "
             f"{', '.join(cfg.countries)} under {cfg.raw_data_dir}"
         )
-    return pl.concat(frames, how="diagonal_relaxed")
+    frames = [_read_table(cfg.raw_data_dir, snapshot, table) for snapshot in snapshots]
+
+    # Every snapshot must have the same columns, in the same order, with the
+    # same types. Fail loudly rather than padding gaps with nulls.
+    expected = frames[0].schema
+    for snapshot, frame in zip(snapshots, frames, strict=True):
+        if frame.schema != expected:
+            raise ValueError(
+                f"Raw {table} in {snapshot.snapshot_id} does not match "
+                f"{snapshots[0].snapshot_id}: expected {dict(expected)}, "
+                f"got {dict(frame.schema)}"
+            )
+    return pl.concat(frames, how="vertical")
