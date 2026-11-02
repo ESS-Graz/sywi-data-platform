@@ -143,11 +143,6 @@ def test_colliding_city_ids_keep_separate_building_levels(enriched: pl.DataFrame
     }
 
 
-def test_per_snapshot_city_counts_do_not_span_countries(enriched: pl.DataFrame) -> None:
-    # One city per country-snapshot, not two: the window must not merge servers.
-    assert set(_by_snapshot(enriched, "Anz_Cities_per_DB").values()) == {1}
-
-
 def test_research_factors_join_within_their_own_country(enriched: pl.DataFrame) -> None:
     assert enriched.get_column("estimated_research_cost_factor").to_list() == [0.86] * 4
     assert enriched.height == 4

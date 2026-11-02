@@ -1,28 +1,15 @@
-"""Step 08: compute island upgrade costs and aggregate per-island stats.
+"""Step 08: compute island upgrade costs.
 
 - Upgrade costs follow the literal Q23 SQL cost tables.
   Level 0 wonder → cost of level 1.
 - Sub_Noetig_nextlev_* = max(0, cost - donated), with null → 0.
-- Aggregates city and donation data by island.
+
+Per-island city and donation totals are built in ``higher_agg``.
 """
 
 from __future__ import annotations
 
 import polars as pl
-
-from ..utils import safe_divide, safe_percent
-
-RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine")
-RESOURCE_COLUMNS: tuple[str, ...] = (
-    tuple(f"building_base_cost_{resource}" for resource in RESOURCE_NAMES)
-    + ("building_base_cost_total",)
-    + tuple(f"estimated_building_cost_{resource}" for resource in RESOURCE_NAMES)
-    + ("estimated_building_cost_total",)
-    + tuple(f"{resource}_stored" for resource in RESOURCE_NAMES)
-    + ("resources_stored_total",)
-    + tuple(f"estimated_{resource}_resource_value" for resource in RESOURCE_NAMES)
-    + ("estimated_resource_value_total",)
-)
 
 RESOURCE_COSTS: tuple[tuple[int, int], ...] = (
     (1, 394),
@@ -157,11 +144,7 @@ def _wonder_cost_table() -> pl.DataFrame:
     return _cost_table(WONDER_COSTS)
 
 
-def enrich_islands(
-    island_raw: pl.DataFrame,
-    city_player_island: pl.DataFrame,
-    donation_enriched: pl.DataFrame,
-) -> pl.DataFrame:
+def enrich_islands(island_raw: pl.DataFrame) -> pl.DataFrame:
     df = island_raw.with_columns(
         pl.col("wonder_level").cast(pl.Int64, strict=False),
         pl.col("resource_level").cast(pl.Int64, strict=False),
@@ -194,55 +177,10 @@ def enrich_islands(
             .otherwise(pl.max_horizontal(pl.lit(0.0), raw))
         )
 
-    df = df.with_columns(
+    return df.with_columns(
         remaining("cost_Nextlev_wonder", "wonder_donated").alias("Sub_Noetig_nextlev_wonder"),
         remaining("cost_Nextlev_resource", "resource_donated").alias("Sub_Noetig_nextlev_resource"),
         remaining("cost_Nextlev_tradegood", "tradegood_donated").alias(
             "Sub_Noetig_nextlev_tradegood"
         ),
     )
-
-    city_aggs: list[pl.Expr] = [
-        pl.col("Buerger_Ges").sum().alias("total_citizens"),
-        pl.col("cities_on_island").sum().alias("calc_city_count"),
-        pl.col("owner_id").n_unique().alias("unique_players"),
-        pl.col("Buerger_Ges").mean().alias("avg_citizens_per_player"),
-    ]
-    city_aggs.extend(
-        pl.col(column).sum().alias(column) for column in RESOURCE_COLUMNS
-    )
-    city_agg = city_player_island.group_by(["island_id", "snapshot_id"]).agg(
-        city_aggs
-    )
-    df = df.join(
-        city_agg,
-        left_on=["id", "snapshot_id"],
-        right_on=["island_id", "snapshot_id"],
-        how="left",
-    )
-
-    don_agg = donation_enriched.group_by(["island_id", "snapshot_id"]).agg(
-        pl.col("Don_Ges").sum().alias("total_donations"),
-        pl.col("Don_Wonder_Ges").sum().alias("total_wonder_donations"),
-        pl.col("Don_Saegewerk_Ges").sum().alias("total_sawmill_donations"),
-        pl.col("Don_Luxusminen_Ges").sum().alias("total_luxury_donations"),
-        (pl.col("Don_Ges") > 0).sum().alias("donating_players"),
-        pl.col("Don_Ges").mean().alias("avg_donation_per_player"),
-    )
-    df = df.join(
-        don_agg,
-        left_on=["id", "snapshot_id"],
-        right_on=["island_id", "snapshot_id"],
-        how="left",
-    )
-
-    df = df.with_columns(
-        safe_percent(pl.col("donating_players"), pl.col("unique_players")).alias(
-            "donation_participation_rate"
-        ),
-        safe_divide(pl.col("total_donations"), pl.col("calc_city_count")).alias(
-            "avg_donation_per_city"
-        ),
-    )
-
-    return df

@@ -12,8 +12,6 @@ validated player.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import polars as pl
 
 from .construction_events import (
@@ -34,13 +32,6 @@ RESOURCE_COLUMNS: tuple[str, ...] = (
     + ("estimated_resource_value_total",)
     + CONSTRUCTION_SUM_COLUMNS
 )
-
-
-@dataclass(frozen=True, slots=True)
-class PanelTables:
-    player_snapshot: pl.DataFrame
-    city_snapshot: pl.DataFrame
-    island_snapshot: pl.DataFrame
 
 
 def build_player_snapshot_table(
@@ -262,24 +253,3 @@ def build_island_snapshot_table(
     )
     base = base.with_columns(observed_construction_coverage_expr())
     return base.sort(["island_id", "snapshot_date", "snapshot_id"])
-
-
-def build_panels(
-    player_enriched: pl.DataFrame,
-    city_enriched: pl.DataFrame,
-    city3_av: pl.DataFrame,
-    city4_i: pl.DataFrame,
-    donation_enriched: pl.DataFrame,
-    donation3_av: pl.DataFrame,
-    donation4_i: pl.DataFrame,
-    island_enriched: pl.DataFrame,
-) -> PanelTables:
-    return PanelTables(
-        player_snapshot=build_player_snapshot_table(
-            player_enriched, city3_av, donation3_av
-        ),
-        city_snapshot=build_city_snapshot_table(
-            city_enriched, donation_enriched, island_enriched
-        ),
-        island_snapshot=build_island_snapshot_table(island_enriched, city4_i, donation4_i),
-    )

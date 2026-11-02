@@ -259,10 +259,8 @@ def donation_enriched(
 def island_enriched(
     context: AssetExecutionContext,
     raw_island: pl.DataFrame,
-    city_player_island: pl.DataFrame,
-    donation_enriched: pl.DataFrame,
 ) -> pl.DataFrame:
-    df = enrich_islands(raw_island, city_player_island, donation_enriched)
+    df = enrich_islands(raw_island)
     _add_df_metadata(context, df)
     return df
 

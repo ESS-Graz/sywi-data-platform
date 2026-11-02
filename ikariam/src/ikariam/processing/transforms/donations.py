@@ -16,7 +16,6 @@ from __future__ import annotations
 import polars as pl
 
 from ..config import Config
-from ..utils import safe_percent
 
 
 def process_donations(
@@ -41,7 +40,6 @@ def process_donations(
         pl.col("Don_Saegewerk").sum().alias("Don_Saegewerk_Ges"),
         pl.col("Don_Luxusminen").sum().alias("Don_Luxusminen_Ges"),
         pl.col("Don_Ges_raw").sum().alias("Don_Ges"),
-        pl.len().alias("donation_records"),
     )
 
     # city_keys = every (avatar, island, snapshot) where the avatar has a city.
@@ -77,7 +75,6 @@ def process_donations(
             pl.lit(0.0).alias("Don_Saegewerk_Ges"),
             pl.lit(0.0).alias("Don_Luxusminen_Ges"),
             pl.lit(0.0).alias("Don_Ges"),
-            pl.lit(0, dtype=pl.UInt32).alias("donation_records"),
         )
         agg = pl.concat([agg, zeros], how="diagonal_relaxed")
 
@@ -133,24 +130,10 @@ def process_donations(
         luxus_share(4).alias("Don_Luxus_Schwefel"),
     )
 
-    agg = agg.with_columns(
-        (pl.col("Don_Wonder_Wein") + pl.col("Don_Luxus_Wein")).alias("Don_Wein_Ges"),
-        (pl.col("Don_Wonder_Stein") + pl.col("Don_Luxus_Stein")).alias("Don_Stein_Ges"),
-        (pl.col("Don_Wonder_Kristall") + pl.col("Don_Luxus_Kristall")).alias("Don_Kristall_Ges"),
-        (pl.col("Don_Wonder_Schwefel") + pl.col("Don_Luxus_Schwefel")).alias("Don_Schwefel_Ges"),
-    )
-    # Algebraically Don_Wein + Don_Stein + Don_Kristall + Don_Schwefel
-    # == Don_Wonder_Ges + Don_Luxusminen_Ges exactly (wonder split sums to 1).
-    # Computing the shortcut avoids O(1e-16) float error that V1 R's sum happened
-    # to dodge. The difference matters because the A_DS output column is Int64.
+    # Wonder plus luxury-mine donations, taken from the two totals directly
+    # rather than by summing the eight per-resource allocations above.
     agg = agg.with_columns(
         (pl.col("Don_Wonder_Ges") + pl.col("Don_Luxusminen_Ges")).alias("Don_Luxus_Ges")
-    )
-
-    agg = agg.with_columns(
-        safe_percent(pl.col("Don_Wonder_Ges"), pl.col("Don_Ges")).alias("Don_Wonder_Proz"),
-        safe_percent(pl.col("Don_Saegewerk_Ges"), pl.col("Don_Ges")).alias("Don_Saegewerk_Proz"),
-        safe_percent(pl.col("Don_Luxusminen_Ges"), pl.col("Don_Ges")).alias("Don_Luxusminen_Proz"),
     )
 
     # Attach snapshot_date and country back for downstream aggregations.

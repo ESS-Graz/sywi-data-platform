@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import polars as pl
 
-from ..utils import safe_percent
 from .building_costs import (
     HISTORICAL_REDUCTION_BUILDING_MAX_LEVEL,
     REDUCTION_LEVEL_COLUMNS,
@@ -91,8 +90,6 @@ def compute_city_metrics(
     avatar_slice = avatar_enriched.select(
         pl.col("id").alias("owner_id"),
         pl.col("snapshot_id"),
-        "account_age_days",
-        "registered_at",
         "estimated_research_cost_factor",
         "estimated_research_cost_factor_source",
         "research_evidence_tier",
@@ -169,7 +166,7 @@ def compute_city_metrics(
         ).alias("estimated_resource_value_total")
     )
 
-    # --- Population, worker totals, building levels. ---
+    # --- Population and building levels. ---
     df = df.with_columns(
         (
             pl.col("citizens")
@@ -178,42 +175,12 @@ def compute_city_metrics(
             + pl.col("scientists")
             + pl.col("priests")
         ).alias("Buerger_Ges"),
-        (pl.col("resource_workers") + pl.col("tradegood_workers")).alias("Resworkers_Holz_Lux"),
     )
     df = df.with_columns(
         # Building levels include the town hall, which has no numbered slot and
         # is also published separately as town_hall_level.
         (pl.sum_horizontal(_level_cols()) + pl.col("level")).alias("Geblev"),
         pl.col("level").alias("Rathauslev"),
-        pl.lit(0, dtype=pl.Int64).alias("GovReslev"),
-    )
-    df = df.with_columns(
-        safe_percent(pl.col("resource_workers"), pl.col("Buerger_Ges")).alias(
-            "Proz_resource_workers_pro_Buerger_Ges"
-        ),
-        safe_percent(pl.col("tradegood_workers"), pl.col("Buerger_Ges")).alias(
-            "Proz_tradegood_workers_pro_Buerger_Ges"
-        ),
-    )
-
-    # --- Per-avatar / per-snapshot counts and broadcast averages. ---
-    df = df.with_columns(
-        pl.len().over(["owner_id", "snapshot_id"]).alias("Anz_Cities_per_Av"),
-        pl.col("island_id").n_unique().over(["owner_id", "snapshot_id"]).alias("Anz_Ins_per_Av"),
-        pl.len().over("snapshot_id").alias("Anz_Cities_per_DB"),
-    )
-    avg_cols = {
-        "Avg_Buerger_Ges": "Buerger_Ges",
-        "Avg_Rathauslev": "Rathauslev",
-        "Avg_Resource_workers": "resource_workers",
-        "Avg_Tradegood_workers": "tradegood_workers",
-        "Avg_Anz_cities_per_Av": "Anz_Cities_per_Av",
-    }
-    df = df.with_columns(
-        [
-            pl.col(src).mean().over(["owner_id", "snapshot_id"]).alias(dst)
-            for dst, src in avg_cols.items()
-        ]
     )
 
     return df
