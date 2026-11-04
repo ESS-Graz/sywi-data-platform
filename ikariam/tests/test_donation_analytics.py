@@ -16,6 +16,7 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
             "snapshot_id": ["s1", "s1"],
             "snapshot_date": ["2026-01-01", "2026-01-01"],
             "country": ["DE", "DE"],
+            "server": [1, 1],
             "Don_Ges": [100.0, 50.0],
             "Don_Saegewerk_Ges": [40.0, 10.0],
             "Don_Luxusminen_Ges": [30.0, 15.0],

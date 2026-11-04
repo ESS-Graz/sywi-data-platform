@@ -95,7 +95,7 @@ def valid_players(context: AssetExecutionContext, raw_avatar: pl.DataFrame) -> p
     df = (
         prepare_validated_avatars(raw_avatar)
         .filter(pl.col("_registration_time_int") >= cfg.min_registration_time)
-        .select("country", "id")
+        .select("country", "server", "id")
         .unique()
     )
     _add_df_metadata(context, df)
@@ -108,7 +108,7 @@ def filtered_avatar(
     raw_avatar: pl.DataFrame,
     valid_players: pl.DataFrame,
 ) -> pl.DataFrame:
-    df = raw_avatar.join(valid_players, on=["country", "id"], how="semi")
+    df = raw_avatar.join(valid_players, on=["country", "server", "id"], how="semi")
     _add_df_metadata(context, df)
     return df
 
@@ -120,7 +120,7 @@ def filtered_city(
     valid_players: pl.DataFrame,
 ) -> pl.DataFrame:
     keys = valid_players.rename({"id": "owner_id"})
-    df = raw_city.join(keys, on=["country", "owner_id"], how="semi")
+    df = raw_city.join(keys, on=["country", "server", "owner_id"], how="semi")
     _add_df_metadata(context, df)
     return df
 
@@ -132,7 +132,7 @@ def filtered_donation(
     valid_players: pl.DataFrame,
 ) -> pl.DataFrame:
     keys = valid_players.rename({"id": "avatar_id"})
-    df = raw_donation.join(keys, on=["country", "avatar_id"], how="semi")
+    df = raw_donation.join(keys, on=["country", "server", "avatar_id"], how="semi")
     _add_df_metadata(context, df)
     return df
 

@@ -136,9 +136,9 @@ def process_donations(
         (pl.col("Don_Wonder_Ges") + pl.col("Don_Luxusminen_Ges")).alias("Don_Luxus_Ges")
     )
 
-    # Attach snapshot_date and country back for downstream aggregations.
+    # Attach snapshot_date, country and server back for downstream aggregations.
     snap_meta = (
-        city_player_island.select(["snapshot_id", "snapshot_date", "country"])
+        city_player_island.select(["snapshot_id", "snapshot_date", "country", "server"])
         .unique(subset=["snapshot_id"])
     )
     agg = agg.join(snap_meta, on="snapshot_id", how="left")

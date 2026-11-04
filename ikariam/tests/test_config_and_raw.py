@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
 
 import polars as pl
@@ -9,7 +10,7 @@ import pytest
 from ikariam.processing import config as config_module
 from ikariam.processing.config import Config, load_config
 from ikariam.processing.io_files import read_building_costs
-from ikariam.processing.io_raw import discover_snapshots, load_raw_table
+from ikariam.processing.io_raw import load_raw_table
 
 
 def _cfg(raw_data_dir: Path) -> Config:
@@ -24,35 +25,50 @@ def _cfg(raw_data_dir: Path) -> Config:
     )
 
 
-def _write_snapshot(root: Path, country: str, snapshot_date: str) -> None:
-    snap_dir = root / country / snapshot_date
+def _snapshot_dir(root: Path, country: str, server: int, snapshot_date: str) -> Path:
+    return root / f"country={country}" / f"server={server}" / f"snapshot_date={snapshot_date}"
+
+
+def _write_snapshot(
+    root: Path, country: str, snapshot_date: str, server: int = 1, dtype=pl.Int64
+) -> None:
+    snap_dir = _snapshot_dir(root, country, server, snapshot_date)
     snap_dir.mkdir(parents=True)
-    pl.DataFrame({"id": [f"{country}-player"], "registration_time": [1366797600]}).write_parquet(
-        snap_dir / "avatar.parquet"
-    )
+    pl.DataFrame(
+        {"id": [f"{country}-player"], "registration_time": pl.Series([1366797600], dtype=dtype)}
+    ).write_parquet(snap_dir / "avatar_0.parquet")
     pl.DataFrame({"ignored": [1]}).write_parquet(snap_dir / "logGovernmentChanges.parquet")
 
 
 def test_raw_loader_discovers_countries_and_adds_snapshot_columns(tmp_path: Path):
     raw_root = tmp_path / "ikariam"
-    _write_snapshot(raw_root, "de", "2013-04-25")
-    _write_snapshot(raw_root, "en", "2013-05-02")
-
-    snapshots = discover_snapshots(raw_root, ("DE", "EN"))
-    assert [s.snapshot_id for s in snapshots] == ["de_2504_13", "en_0205_13"]
+    _write_snapshot(raw_root, "de", "2013-04-25", server=23)
+    _write_snapshot(raw_root, "en", "2013-05-02", server=22)
 
     df = load_raw_table(_cfg(raw_root), "avatar").sort("country")
     assert df.select("country", "snapshot_id", "snapshot_date").to_dicts() == [
-        {"country": "DE", "snapshot_id": "de_2504_13", "snapshot_date": snapshots[0].snapshot_date},
-        {"country": "EN", "snapshot_id": "en_0205_13", "snapshot_date": snapshots[1].snapshot_date},
+        {"country": "DE", "snapshot_id": "de23_2504_13", "snapshot_date": date(2013, 4, 25)},
+        {"country": "EN", "snapshot_id": "en22_0205_13", "snapshot_date": date(2013, 5, 2)},
     ]
+    assert df.sort("country")["server"].to_list() == [23, 22]
+
+
+def test_raw_loader_separates_servers_and_widens_integer_types(tmp_path: Path):
+    raw_root = tmp_path / "ikariam"
+    _write_snapshot(raw_root, "de", "2013-04-25", server=23, dtype=pl.UInt32)
+    _write_snapshot(raw_root, "de", "2013-04-25", server=24, dtype=pl.Int64)
+
+    df = load_raw_table(replace(_cfg(raw_root), countries=("DE",)), "avatar").sort("server")
+
+    assert df["snapshot_id"].to_list() == ["de23_2504_13", "de24_2504_13"]
+    assert df["registration_time"].dtype == pl.Int64
 
 
 def test_config_uses_workspace_raw_convention(monkeypatch, tmp_path: Path):
     workspace = tmp_path / "workspace"
     project = workspace / "ikariam"
     raw_root = workspace / "data" / "raw" / "ikariam"
-    (raw_root / "de" / "2013-04-25").mkdir(parents=True)
+    _snapshot_dir(raw_root, "de", 1, "2013-04-25").mkdir(parents=True)
     project.mkdir()
     (workspace / "dg.toml").write_text('directory_type = "workspace"\n', encoding="utf-8")
 
@@ -69,7 +85,7 @@ def test_config_uses_workspace_raw_convention(monkeypatch, tmp_path: Path):
 def test_config_uses_project_root_without_workspace(monkeypatch, tmp_path: Path):
     project = tmp_path / "ikariam"
     raw_root = project / "data" / "raw" / "ikariam"
-    (raw_root / "de" / "2013-04-25").mkdir(parents=True)
+    _snapshot_dir(raw_root, "de", 1, "2013-04-25").mkdir(parents=True)
 
     monkeypatch.setattr(config_module, "project_root", lambda: project)
 
@@ -84,7 +100,7 @@ def test_config_uses_project_root_without_workspace(monkeypatch, tmp_path: Path)
 def test_config_rejects_uppercase_country_directories(monkeypatch, tmp_path: Path):
     project = tmp_path / "ikariam"
     raw_root = project / "data" / "raw" / "ikariam"
-    (raw_root / "DE" / "2013-04-25").mkdir(parents=True)
+    _snapshot_dir(raw_root, "DE", 1, "2013-04-25").mkdir(parents=True)
 
     monkeypatch.setattr(config_module, "project_root", lambda: project)
 
@@ -95,21 +111,19 @@ def test_config_rejects_uppercase_country_directories(monkeypatch, tmp_path: Pat
 def test_raw_loader_rejects_snapshots_with_different_columns(tmp_path: Path):
     raw_root = tmp_path / "ikariam"
     _write_snapshot(raw_root, "de", "2013-04-25")
-    later = raw_root / "de" / "2013-05-02"
+    later = _snapshot_dir(raw_root, "de", 1, "2013-05-02")
     later.mkdir(parents=True)
-    pl.DataFrame({"id": ["de-player"]}).write_parquet(later / "avatar.parquet")
+    pl.DataFrame({"id": ["de-player"]}).write_parquet(later / "avatar_0.parquet")
 
     cfg = replace(_cfg(raw_root), countries=("DE",))
-    with pytest.raises(ValueError, match="in de_0205_13 does not match de_2504_13"):
+    with pytest.raises(pl.exceptions.PolarsError, match="same schema"):
         load_raw_table(cfg, "avatar")
 
 
 def test_building_costs_rejects_empty_cells(tmp_path: Path):
     path = tmp_path / "building_costs.csv"
     path.write_text(
-        "building_type;building_level;"
-        "cost_holz;cost_quartz;cost_kristall;cost_wein;cost_schwefel\n"
-        "1;2;158;;0;0;0\n",
+        "building_type;building_level;cost_holz;cost_quartz;cost_kristall;cost_wein;cost_schwefel\n1;2;158;;0;0;0\n",
         encoding="utf-8",
     )
 

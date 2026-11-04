@@ -11,8 +11,8 @@ from __future__ import annotations
 import polars as pl
 
 
-_PLAYER_KEYS = ["country", "id"]
-_SNAPSHOT_KEYS = ["country", "id", "snapshot_id"]
+_PLAYER_KEYS = ["country", "server", "id"]
+_SNAPSHOT_KEYS = ["country", "server", "id", "snapshot_id"]
 _MIN_PLAUSIBLE_REGISTRATION_UNIX = 1_199_145_600  # 2008-01-01 UTC
 _MAX_PLAUSIBLE_REGISTRATION_UNIX = 4_102_444_800  # 2100-01-01 UTC
 
@@ -70,7 +70,7 @@ def prepare_validated_avatars(avatar_raw: pl.DataFrame) -> pl.DataFrame:
     """
     _require_columns(
         avatar_raw,
-        {"country", "id", "snapshot_id", "snapshot_date", "registration_time"},
+        {"country", "server", "id", "snapshot_id", "snapshot_date", "registration_time"},
         "avatar_raw",
     )
 
@@ -157,7 +157,7 @@ def prepare_validated_avatars(avatar_raw: pl.DataFrame) -> pl.DataFrame:
 
 
 def _current_research_evidence(city_raw: pl.DataFrame) -> pl.DataFrame:
-    _require_columns(city_raw, {"country", "owner_id", "snapshot_id"}, "city_raw")
+    _require_columns(city_raw, {"country", "server", "owner_id", "snapshot_id"}, "city_raw")
 
     slot_columns = [
         f"p{position}{suffix}"
@@ -196,7 +196,7 @@ def _current_research_evidence(city_raw: pl.DataFrame) -> pl.DataFrame:
             raise _validation_error(
                 "non-integer city building slot value",
                 invalid_slot_values,
-                keys=["country", "owner_id", "snapshot_id"],
+                keys=["country", "server", "owner_id", "snapshot_id"],
             )
 
     normalized_city = city_raw.with_columns(
@@ -217,6 +217,7 @@ def _current_research_evidence(city_raw: pl.DataFrame) -> pl.DataFrame:
         slot = (
             normalized_city.select(
                 "country",
+                "server",
                 pl.col("owner_id").alias("id"),
                 "snapshot_id",
                 pl.col(type_column).alias("_building_type"),
@@ -246,6 +247,7 @@ def _current_research_evidence(city_raw: pl.DataFrame) -> pl.DataFrame:
         return pl.DataFrame(
             schema={
                 "country": pl.String,
+                "server": pl.Int64,
                 "id": pl.String,
                 "snapshot_id": pl.String,
                 "_current_evidence_rank": pl.Int8,
@@ -276,7 +278,7 @@ def enrich_avatars(avatar_raw: pl.DataFrame, city_raw: pl.DataFrame) -> pl.DataF
     """Add validated snapshot age and cumulative research-building evidence.
 
     Evidence is aggregated across all current cities for a player-snapshot and
-    then carried only into later observations of the same country/player. The
+    then carried only into later observations of the same country/server/player. The
     final factor is the stronger (numerically smaller) of age and evidence;
     evidence is the source only when it strictly improves on the age heuristic.
     """
@@ -286,7 +288,7 @@ def enrich_avatars(avatar_raw: pl.DataFrame, city_raw: pl.DataFrame) -> pl.DataF
     result = prepared.join(current_evidence, on=_SNAPSHOT_KEYS, how="left").with_columns(
         pl.col("_current_evidence_rank").fill_null(0).cast(pl.Int8)
     )
-    result = result.sort(["country", "id", "_snapshot_date", "snapshot_id"]).with_columns(
+    result = result.sort([*_PLAYER_KEYS, "_snapshot_date", "snapshot_id"]).with_columns(
         pl.col("_current_evidence_rank")
         .cum_max()
         .over(_PLAYER_KEYS)

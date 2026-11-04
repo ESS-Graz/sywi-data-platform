@@ -122,8 +122,7 @@ def add_building_base_costs(
     negative_levels = slots.filter(pl.col("building_level") < 0)
     if not negative_levels.is_empty():
         raise ValueError(
-            "Negative building levels: "
-            f"{_format_pairs(negative_levels.select(LOOKUP_KEYS).unique())}"
+            f"Negative building levels: {_format_pairs(negative_levels.select(LOOKUP_KEYS).unique())}"
         )
     buildings = slots.filter(
         (pl.col("building_type") > 0) & (pl.col("building_level") > 0)
@@ -137,18 +136,14 @@ def add_building_base_costs(
     )
     if not duplicate_reducers.is_empty():
         raise ValueError(
-            "Duplicate reduction buildings in "
-            f"{duplicate_reducers.select('_city_row').n_unique()} city rows: "
-            f"{_sample_city_keys(cities, duplicate_reducers)}"
+            f"Duplicate reduction buildings in {duplicate_reducers.select('_city_row').n_unique()} city rows: {_sample_city_keys(cities, duplicate_reducers)}"
         )
     over_cap_reducers = reducers.filter(
         pl.col("building_level") > HISTORICAL_REDUCTION_BUILDING_MAX_LEVEL
     )
     if not over_cap_reducers.is_empty():
         raise ValueError(
-            "Reduction building levels above historical cap "
-            f"{HISTORICAL_REDUCTION_BUILDING_MAX_LEVEL}: "
-            f"{_format_pairs(over_cap_reducers.select(LOOKUP_KEYS).unique())}"
+            f"Reduction building levels above historical cap {HISTORICAL_REDUCTION_BUILDING_MAX_LEVEL}: {_format_pairs(over_cap_reducers.select(LOOKUP_KEYS).unique())}"
         )
 
     used_buildings = buildings.select(LOOKUP_KEYS).unique()

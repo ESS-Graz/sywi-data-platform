@@ -23,7 +23,7 @@ SUM_COLUMNS: tuple[str, ...] = (
     "Buerger_Ges", "Geblev", "Rathauslev",
 ) + RESOURCE_SUM_COLUMNS + CONSTRUCTION_SUM_COLUMNS
 
-FIRST_COLUMNS: tuple[str, ...] = ("snapshot_date", "country")
+FIRST_COLUMNS: tuple[str, ...] = ("snapshot_date", "country", "server")
 
 
 def aggregate_to_player_island(city_enriched: pl.DataFrame) -> pl.DataFrame:

@@ -60,11 +60,12 @@ CONSTRUCTION_SUM_COLUMNS: tuple[str, ...] = (
     + ("opening_stock_base_cost_total",)
 )
 
-_SERIES_KEYS: list[str] = ["country_code", "city_id", "position"]
+_SERIES_KEYS: list[str] = ["country_code", "server", "city_id", "position"]
 _LEVEL_KEYS: list[str] = [*_SERIES_KEYS, "building_type", "building_level"]
-_CITY_KEYS: list[str] = ["country_code", "city_id"]
+_CITY_KEYS: list[str] = ["country_code", "server", "city_id"]
 _CITY_SNAPSHOT_KEYS: list[str] = [
     "country_code",
+    "server",
     "city_id",
     "snapshot_id",
     "snapshot_date",
@@ -109,8 +110,7 @@ def build_level_cost_deltas(building_costs: pl.DataFrame) -> pl.DataFrame:
     )
     if not broken.is_empty():
         raise ValueError(
-            "Building cost levels must run 1..max without gaps; offending types: "
-            f"{sorted(broken.get_column('building_type').to_list())}"
+            f"Building cost levels must run 1..max without gaps; offending types: {sorted(broken.get_column('building_type').to_list())}"
         )
 
     return costs.select(
@@ -140,6 +140,7 @@ def build_slot_panel(city_enriched: pl.DataFrame) -> pl.DataFrame:
     frames = [
         city_enriched.select(
             pl.col("country").alias("country_code"),
+            "server",
             pl.col("id").alias("city_id"),
             "snapshot_id",
             "snapshot_date",
@@ -151,6 +152,7 @@ def build_slot_panel(city_enriched: pl.DataFrame) -> pl.DataFrame:
     frames.extend(
         city_enriched.select(
             pl.col("country").alias("country_code"),
+            "server",
             pl.col("id").alias("city_id"),
             "snapshot_id",
             "snapshot_date",
@@ -207,6 +209,7 @@ def build_construction_events(
 
     factors = city_enriched.select(
         pl.col("country").alias("country_code"),
+        "server",
         pl.col("id").alias("city_id"),
         "snapshot_date",
         *(f"estimated_{resource}_cost_factor" for resource in RESOURCE_NAMES),
@@ -244,8 +247,8 @@ def build_construction_events(
         .drop("building_level")
         .explode("_levels")
         .rename({"_levels": "building_level"})
-        .join(factors, on=["country_code", "city_id", "snapshot_date"], how="left")
-        .join(start_factors, on=["country_code", "city_id", "_prev_date"], how="left")
+        .join(factors, on=["country_code", "server", "city_id", "snapshot_date"], how="left")
+        .join(start_factors, on=["country_code", "server", "city_id", "_prev_date"], how="left")
         .join(
             build_level_cost_deltas(building_costs),
             on=["building_type", "building_level"],
@@ -342,8 +345,7 @@ def build_demolition_events(
     )
     if priced.height != removals.height:
         raise ValueError(
-            "Demolished levels without a matching prior construction event: "
-            f"removals={removals.height}, priced={priced.height}"
+            f"Demolished levels without a matching prior construction event: removals={removals.height}, priced={priced.height}"
         )
     return priced.sort(*_LEVEL_KEYS, "removed_at_snapshot_date")
 
@@ -490,12 +492,13 @@ def attach_city_construction(
     """
     measures = city_construction.select(
         pl.col("country_code").alias("country"),
+        "server",
         pl.col("city_id").alias("id"),
         "snapshot_id",
         *CONSTRUCTION_SUM_COLUMNS,
     )
     return city_enriched.join(
-        measures, on=["country", "id", "snapshot_id"], how="left"
+        measures, on=["country", "server", "id", "snapshot_id"], how="left"
     ).with_columns(
         pl.col(column).fill_null(0.0) for column in CONSTRUCTION_SUM_COLUMNS
     )

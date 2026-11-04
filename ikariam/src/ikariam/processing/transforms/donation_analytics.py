@@ -53,6 +53,7 @@ def build_donation_analytics_player_island_snapshot(
         "snapshot_id",
         "snapshot_date",
         pl.col("country").alias("country_code"),
+        "server",
         pl.col("Don_Ges").alias("donations_total"),
         pl.col("Don_Saegewerk_Ges").alias("sawmill_donations_total"),
         pl.col("Don_Luxusminen_Ges").alias("luxury_mine_donations_total"),

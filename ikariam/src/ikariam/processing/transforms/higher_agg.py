@@ -42,7 +42,7 @@ def aggregate_by_avatar(city_player_island: pl.DataFrame) -> pl.DataFrame:
     ]
     aggs.extend(_sum_resource_columns())
     return city_player_island.group_by(
-        ["owner_id", "snapshot_id", "snapshot_date", "country"]
+        ["owner_id", "snapshot_id", "snapshot_date", "country", "server"]
     ).agg(aggs)
 
 
@@ -56,13 +56,13 @@ def aggregate_by_island(city_player_island: pl.DataFrame) -> pl.DataFrame:
     ]
     aggs.extend(_sum_resource_columns())
     return city_player_island.group_by(
-        ["island_id", "snapshot_id", "snapshot_date", "country"]
+        ["island_id", "snapshot_id", "snapshot_date", "country", "server"]
     ).agg(aggs)
 
 
 def donations_by_avatar(donation_enriched: pl.DataFrame) -> pl.DataFrame:
     return donation_enriched.group_by(
-        ["avatar_id", "snapshot_id", "snapshot_date", "country"]
+        ["avatar_id", "snapshot_id", "snapshot_date", "country", "server"]
     ).agg(
         pl.col("Don_Wonder_Ges").sum().alias("Don_Wonder_Ges"),
         pl.col("Don_Saegewerk_Ges").sum().alias("Don_Saegewerk_Ges"),
@@ -74,7 +74,7 @@ def donations_by_avatar(donation_enriched: pl.DataFrame) -> pl.DataFrame:
 
 def donations_by_island(donation_enriched: pl.DataFrame) -> pl.DataFrame:
     g = donation_enriched.group_by(
-        ["island_id", "snapshot_id", "snapshot_date", "country"]
+        ["island_id", "snapshot_id", "snapshot_date", "country", "server"]
     ).agg(
         pl.col("avatar_id").n_unique().alias("total_players"),
         (pl.col("Don_Ges") > 0).sum().alias("donating_players"),

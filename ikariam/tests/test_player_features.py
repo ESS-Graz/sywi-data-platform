@@ -16,11 +16,13 @@ def _avatar(
     observations: list[tuple[str, str, int]],
     *,
     country: str = "DE",
+    server: int = 1,
     registration_time: object = REGISTRATION_UNIX,
 ) -> pl.DataFrame:
     return pl.DataFrame(
         {
             "country": [country] * len(observations),
+            "server": [server] * len(observations),
             "id": [player_id for player_id, _, _ in observations],
             "snapshot_id": [snapshot_id for _, snapshot_id, _ in observations],
             "snapshot_date": [
@@ -35,7 +37,7 @@ def _avatar(
 
 def _empty_city() -> pl.DataFrame:
     return pl.DataFrame(
-        schema={"country": pl.String, "owner_id": pl.String, "snapshot_id": pl.String}
+        schema={"country": pl.String, "server": pl.Int64, "owner_id": pl.String, "snapshot_id": pl.String}
     )
 
 
@@ -99,6 +101,7 @@ def test_strongest_nonzero_building_evidence_is_used_per_player_snapshot() -> No
     city = _complete_city_slots(pl.DataFrame(
         {
             "country": ["DE"] * 7,
+            "server": [1] * 7,
             "owner_id": [
                 "pulley",
                 "geometry",
@@ -141,6 +144,7 @@ def test_building_source_requires_strictly_stronger_evidence() -> None:
     city = _complete_city_slots(pl.DataFrame(
         {
             "country": ["DE", "DE"],
+            "server": [1, 1],
             "owner_id": ["equal", "weaker"],
             "snapshot_id": ["s3", "s17"],
             "p1t": [9, 9],
@@ -170,6 +174,7 @@ def test_evidence_carries_forward_without_lookahead_or_cross_country_leakage() -
     city = _complete_city_slots(pl.DataFrame(
         {
             "country": ["DE"],
+            "server": [1],
             "owner_id": ["p1"],
             "snapshot_id": ["de_evidence"],
             "p1t": [24],
@@ -188,6 +193,29 @@ def test_evidence_carries_forward_without_lookahead_or_cross_country_leakage() -
     assert rows[("DE", "de_late")]["research_evidence_tier"] == "geometry_or_later"
     assert rows[("DE", "de_late")]["estimated_research_cost_factor"] == 0.94
     assert rows[("EN", "en_late")]["research_evidence_tier"] == "none"
+
+
+def test_evidence_does_not_leak_between_servers_of_one_country() -> None:
+    server1 = _avatar([("p1", "de1_early", 1), ("p1", "de1_late", 10)], server=1)
+    server2 = _avatar([("p1", "de2_late", 10)], server=2)
+    city = _complete_city_slots(pl.DataFrame(
+        {
+            "country": ["DE"],
+            "server": [1],
+            "owner_id": ["p1"],
+            "snapshot_id": ["de1_early"],
+            "p1t": [24],
+            "p1l": [1],
+        }
+    ))
+
+    rows = {
+        row["snapshot_id"]: row
+        for row in enrich_avatars(pl.concat([server1, server2]), city).to_dicts()
+    }
+
+    assert rows["de1_late"]["research_evidence_tier"] == "geometry_or_later"
+    assert rows["de2_late"]["research_evidence_tier"] == "none"
 
 
 @pytest.mark.parametrize(
@@ -264,6 +292,7 @@ def test_nonempty_city_requires_the_complete_building_slot_schema() -> None:
     city = pl.DataFrame(
         {
             "country": ["DE"],
+            "server": [1],
             "owner_id": ["p1"],
             "snapshot_id": ["s1"],
             "p1t": [9],
@@ -280,6 +309,8 @@ def test_malformed_building_slot_value_is_reported() -> None:
         pl.DataFrame(
             {
                 "country": ["DE"],
+                "server": [1],
+            "server": [1],
                 "owner_id": ["p1"],
                 "snapshot_id": ["s1"],
                 "p1t": ["not-a-building-type"],

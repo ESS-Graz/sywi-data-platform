@@ -2,15 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
-
-
-@dataclass(frozen=True, slots=True)
-class Snapshot:
-    snapshot_id: str
-    snapshot_date: date
-    country: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +37,12 @@ def _discover_countries(raw_data_dir: Path) -> tuple[str, ...]:
     if not raw_data_dir.exists():
         return ()
 
-    country_dirs = sorted(p.name for p in raw_data_dir.iterdir() if p.is_dir())
+    # Hive layout: <raw_data_dir>/country=<xx>/server=<nn>/snapshot_date=<date>/
+    country_dirs = sorted(
+        p.name.removeprefix("country=")
+        for p in raw_data_dir.iterdir()
+        if p.is_dir() and p.name.startswith("country=")
+    )
     invalid = [name for name in country_dirs if name != name.lower()]
     if invalid:
         raise ValueError(

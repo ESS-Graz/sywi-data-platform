@@ -49,6 +49,7 @@ def _city(*snapshots: dict[str, object]) -> pl.DataFrame:
         snapshot_id = str(snapshot["snapshot_id"])
         row: dict[str, object] = {
             "country": "DE",
+            "server": 1,
             "id": "c1",
             "snapshot_id": snapshot_id,
             "snapshot_date": _DATES[snapshot_id],

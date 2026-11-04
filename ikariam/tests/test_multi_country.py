@@ -38,6 +38,7 @@ def _city(
     snapshot_date: date,
     town_hall_level: int,
     slot_level: int,
+    server: int = 1,
 ) -> dict[str, object]:
     row: dict[str, object] = {
         "id": CITY_ID,
@@ -46,6 +47,7 @@ def _city(
         "snapshot_id": snapshot_id,
         "snapshot_date": snapshot_date,
         "country": country,
+        "server": server,
         "capital": 1,
         "citizens": 10,
         "resource_workers": 2,
@@ -103,6 +105,7 @@ def players() -> pl.DataFrame:
     return pl.DataFrame(
         {
             "country": ["DE", "DE", "EN", "EN"],
+            "server": [1] * 4,
             "id": [PLAYER_ID] * 4,
             "snapshot_id": snapshot_ids,
             "account_age_days": [200] * 4,
@@ -208,3 +211,37 @@ def test_raw_tables_partition_into_one_table_per_country(cities: pl.DataFrame) -
     for name, country in (("raw_city_de", "DE"), ("raw_city_en", "EN")):
         assert partitions[name].get_column("country").unique().to_list() == [country]
         assert partitions[name].height == 2
+
+
+def test_servers_of_one_country_do_not_merge(costs: pl.DataFrame) -> None:
+    """Same country, same city id on two servers: histories stay separate."""
+    cities = pl.DataFrame(
+        [
+            _city("DE", "de1_0101_20", date(2020, 1, 1), 5, 1, server=1),
+            _city("DE", "de1_0801_20", date(2020, 1, 8), 7, 3, server=1),
+            _city("DE", "de2_0101_20", date(2020, 1, 1), 2, 1, server=2),
+            _city("DE", "de2_0801_20", date(2020, 1, 8), 2, 1, server=2),
+        ]
+    )
+    players = pl.DataFrame(
+        {
+            "country": ["DE"] * 4,
+            "server": [1, 1, 2, 2],
+            "id": [PLAYER_ID] * 4,
+            "snapshot_id": ["de1_0101_20", "de1_0801_20", "de2_0101_20", "de2_0801_20"],
+            "account_age_days": [200] * 4,
+            "registered_at": [datetime(2020, 1, 1, tzinfo=UTC)] * 4,
+            "estimated_research_cost_factor": [0.86] * 4,
+            "estimated_research_cost_factor_source": ["age_heuristic"] * 4,
+            "research_evidence_tier": ["geometry_or_later"] * 4,
+        }
+    )
+    enriched = compute_city_metrics(add_building_base_costs(cities, costs), players)
+    assert enriched.height == 4
+
+    panel = build_slot_panel(enriched)
+    events = build_construction_events(panel, enriched, costs)
+
+    # Server 1: 7 town hall + 3 slot levels. Server 2: 2 + 1, all opening stock.
+    assert dict(events.group_by("server").len().iter_rows()) == {1: 10, 2: 3}
+    assert events.filter(pl.col("server") == 2).get_column("is_opening_stock").all()

@@ -129,8 +129,7 @@ def compute_city_metrics(
             [column for column in ("id", "snapshot_id") if column in df.columns]
         ).head(5)
         raise ValueError(
-            f"Estimated cost factors outside [{MIN_ESTIMATED_COST_FACTOR}, 1.0]: "
-            f"rows={invalid_factors.height}; sample_keys={sample.to_dicts()}"
+            f"Estimated cost factors outside [{MIN_ESTIMATED_COST_FACTOR}, 1.0]: rows={invalid_factors.height}; sample_keys={sample.to_dicts()}"
         )
 
     # Estimated building cost is explicit rather than overwriting base cost.

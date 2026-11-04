@@ -1,60 +1,29 @@
-"""Raw parquet loading for the Dagster Ikariam pipeline."""
+"""Load raw Ikariam parquet exports laid out as Hive partitions.
+
+Layout: ``<raw_data_dir>/country=<xx>/server=<nn>/snapshot_date=<YYYY-MM-DD>/<table>_*.parquet``
+Polars reads ``country``, ``server`` and ``snapshot_date`` from the folder names.
+"""
 
 from __future__ import annotations
 
-from datetime import date
 from pathlib import Path
 
 import polars as pl
+import polars.selectors as cs
 
-from .config import Config, Snapshot
+from .config import Config
 
 RAW_TABLES: tuple[str, ...] = ("avatar", "city", "donation", "island")
 
-
-def snapshot_id_for(country: str, snapshot_date: date) -> str:
-    return f"{country.lower()}_{snapshot_date:%d%m_%y}"
+HIVE_SCHEMA = {"country": pl.String, "server": pl.Int64, "snapshot_date": pl.Date}
 
 
-def discover_snapshots(raw_data_dir: Path, countries: tuple[str, ...]) -> tuple[Snapshot, ...]:
-    snapshots: list[Snapshot] = []
-    for country in countries:
-        country_dir = raw_data_dir / country.lower()
-        if not country_dir.exists():
-            raise FileNotFoundError(f"Missing raw data directory for country {country}: {country_dir}")
-
-        for snapshot_dir in sorted(p for p in country_dir.iterdir() if p.is_dir()):
-            try:
-                snapshot_date = date.fromisoformat(snapshot_dir.name)
-            except ValueError as exc:
-                raise ValueError(
-                    "Snapshot directories must be named as ISO dates (YYYY-MM-DD); "
-                    f"found {snapshot_dir}"
-                ) from exc
-            snapshots.append(
-                Snapshot(
-                    snapshot_id=snapshot_id_for(country, snapshot_date),
-                    snapshot_date=snapshot_date,
-                    country=country.upper(),
-                )
-            )
-
-    return tuple(sorted(snapshots, key=lambda s: (s.country, s.snapshot_date)))
-
-
-def _snapshot_dir(raw_data_dir: Path, snapshot: Snapshot) -> Path:
-    return raw_data_dir / snapshot.country.lower() / snapshot.snapshot_date.isoformat()
-
-
-def _read_table(raw_data_dir: Path, snapshot: Snapshot, table: str) -> pl.DataFrame:
-    path = _snapshot_dir(raw_data_dir, snapshot) / f"{table}.parquet"
-    if not path.exists():
-        raise FileNotFoundError(f"Missing raw parquet: {path}")
-
-    return pl.read_parquet(path).with_columns(
-        pl.lit(snapshot.snapshot_id).alias("snapshot_id"),
-        pl.lit(snapshot.snapshot_date).alias("snapshot_date"),
-        pl.lit(snapshot.country).alias("country"),
+def _scan_file(path: Path) -> pl.LazyFrame:
+    return (
+        pl.scan_parquet(path, hive_partitioning=True, hive_schema=HIVE_SCHEMA)
+        # The export uses the narrowest integer type per column, which can differ
+        # between files. Widen to Int64 so every file shares one schema.
+        .with_columns(cs.integer().cast(pl.Int64))
     )
 
 
@@ -62,27 +31,31 @@ def load_raw_table(cfg: Config, table: str) -> pl.DataFrame:
     if table not in RAW_TABLES:
         raise ValueError(f"Unsupported raw table: {table}")
     if not cfg.countries:
-        raise FileNotFoundError(
-            "No Ikariam countries configured or discoverable. Expected raw files under "
-            f"{cfg.raw_data_dir}/<country>/<snapshot_date>/*.parquet"
-        )
+        layout = f"{cfg.raw_data_dir}/country=<xx>/server=<nn>/snapshot_date=<date>/*.parquet"
+        raise FileNotFoundError(f"No Ikariam countries configured or discoverable. Expected raw files under {layout}")
 
-    snapshots = discover_snapshots(cfg.raw_data_dir, cfg.countries)
-    if not snapshots:
-        raise FileNotFoundError(
-            "No snapshot directories found for countries "
-            f"{', '.join(cfg.countries)} under {cfg.raw_data_dir}"
-        )
-    frames = [_read_table(cfg.raw_data_dir, snapshot, table) for snapshot in snapshots]
+    files: list[Path] = []
+    for country in cfg.countries:
+        country_dir = cfg.raw_data_dir / f"country={country.lower()}"
+        if not country_dir.exists():
+            raise FileNotFoundError(f"Missing raw data directory for country {country}: {country_dir}")
+        files += sorted(country_dir.glob(f"server=*/snapshot_date=*/{table}_*.parquet"))
+    if not files:
+        countries = ", ".join(cfg.countries)
+        raise FileNotFoundError(f"No {table}_*.parquet files found for countries {countries} under {cfg.raw_data_dir}")
 
-    # Every snapshot must have the same columns, in the same order, with the
-    # same types. Fail loudly rather than padding gaps with nulls.
-    expected = frames[0].schema
-    for snapshot, frame in zip(snapshots, frames, strict=True):
-        if frame.schema != expected:
-            raise ValueError(
-                f"Raw {table} in {snapshot.snapshot_id} does not match "
-                f"{snapshots[0].snapshot_id}: expected {dict(expected)}, "
-                f"got {dict(frame.schema)}"
-            )
-    return pl.concat(frames, how="vertical")
+    # Every file must have the same columns and types; concat fails loudly
+    # rather than padding gaps with nulls.
+    raw = pl.concat([_scan_file(f) for f in files], how="vertical")
+    return raw.select(
+        pl.all().exclude(*HIVE_SCHEMA),
+        pl.format(
+            "{}{}_{}",
+            pl.col("country"),
+            pl.col("server"),
+            pl.col("snapshot_date").dt.strftime("%d%m_%y"),
+        ).alias("snapshot_id"),
+        pl.col("snapshot_date"),
+        pl.col("country").str.to_uppercase(),
+        pl.col("server"),
+    ).collect()
