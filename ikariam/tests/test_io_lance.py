@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import lancedb
 import pytest
 import polars as pl
 
-from ikariam.processing.io_lance import _attach_metadata, partition_raw_tables_by_country
+from ikariam.processing.io_lance import (
+    _attach_metadata,
+    partition_raw_tables_by_country,
+    write_lancedb,
+)
 
 
 def test_partition_raw_tables_by_country_splits_rows_deterministically():
@@ -49,3 +54,16 @@ def test_construction_ledgers_carry_their_documentation(
     assert table.schema.metadata[b"description"].decode().startswith(description_start)
     assert table.schema.field("city_id").metadata[b"description"] == b"SHA1 of the city"
     assert table.schema.field("paid_cost_wood").metadata[b"unit"] == b"wood"
+
+
+def test_write_lancedb_replaces_previous_tables(tmp_path) -> None:
+    db_path = tmp_path / "out" / "ikariam.lancedb"
+    write_lancedb(
+        {"raw_avatar_de": pl.DataFrame({"id": ["a"]}), "stale": pl.DataFrame({"id": ["x"]})},
+        db_path,
+    )
+    write_lancedb({"raw_avatar_de": pl.DataFrame({"id": ["b", "c"]})}, db_path)
+
+    db = lancedb.connect(db_path)
+    assert db.list_tables().tables == ["raw_avatar_de"]
+    assert db.open_table("raw_avatar_de").count_rows() == 2

@@ -420,7 +420,7 @@ def ikariam_lancedb(
     db_path = write_lancedb(tables, get_config().lancedb_path)
     return MaterializeResult(
         metadata={
-            "lancedb_path": MetadataValue.path(str(db_path)),
+            "lancedb_path": MetadataValue.text(str(db_path)),
             **{f"{name}_row_count": df.height for name, df in tables.items()},
             "raw_country_partition_count": len(raw_tables),
         }

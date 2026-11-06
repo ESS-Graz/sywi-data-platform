@@ -1,4 +1,4 @@
-"""Write canonical output DataFrames to LanceDB at `output/ikariam.lancedb/`.
+"""Write canonical output DataFrames to LanceDB (local directory or s3:// URI).
 
 Column-level metadata (description, unit) from `schema.py` is attached via
 Arrow field metadata, so reads can introspect via `table.schema.field(c).metadata`.
@@ -7,7 +7,6 @@ Table-level descriptions are attached to the schema's metadata dict.
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -90,12 +89,19 @@ def partition_raw_tables_by_country(raw_tables: dict[str, pl.DataFrame]) -> dict
     return partitioned
 
 
-def write_lancedb(tables: dict[str, pl.DataFrame], db_path: Path) -> Path:
-    """Create a fresh LanceDB with one table per output frame."""
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    if db_path.exists():
-        shutil.rmtree(db_path)
+def write_lancedb(
+    tables: dict[str, pl.DataFrame], db_path: Path | str
+) -> Path | str:
+    """Replace the LanceDB at `db_path` with one table per output frame.
+
+    `db_path` is a local directory or an object-store URI (s3://...). Every
+    existing table is dropped first, so tables that are no longer produced
+    (e.g. a removed country partition) do not linger.
+    """
+    if isinstance(db_path, Path):
+        db_path.parent.mkdir(parents=True, exist_ok=True)
     db = lancedb.connect(db_path)
+    db.drop_all_tables()
 
     for name, df in tables.items():
         tbl = _attach_metadata(df, name)

@@ -45,6 +45,7 @@ services:
         condition: service_started
     networks:
     - sywi-dagster
+    - sywi-infra
     restart: unless-stopped
   dagster_webserver:
     build:
@@ -88,6 +89,7 @@ services:
     - '4000'
     networks:
     - sywi-dagster
+    - sywi-infra
     restart: unless-stopped
     ulimits:
       nofile:
@@ -107,6 +109,7 @@ services:
     - '4000'
     networks:
     - sywi-dagster
+    - sywi-infra
     restart: unless-stopped
     ulimits:
       nofile:
@@ -126,6 +129,7 @@ services:
     - '4000'
     networks:
     - sywi-dagster
+    - sywi-infra
     restart: unless-stopped
     ulimits:
       nofile:
@@ -138,5 +142,8 @@ networks:
   sywi-dagster:
     name: sywi-dagster
     driver: bridge
+  sywi-infra:
+    name: sywi-infra
+    external: true
 volumes:
   dagster_pgdata_pg18: null

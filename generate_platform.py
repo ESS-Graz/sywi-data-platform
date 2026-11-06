@@ -94,7 +94,7 @@ def generate_compose(projects: list[str]) -> dict:
             "depends_on": {
                 "postgresql": {"condition": "service_healthy"},
             },
-            "networks": ["sywi-dagster"],
+            "networks": ["sywi-dagster", "sywi-infra"],
             "restart": "unless-stopped",
         },
         "dagster_webserver": {
@@ -137,7 +137,9 @@ def generate_compose(projects: list[str]) -> dict:
                 RAW_DATA_VOLUME,
             ],
             "expose": ["4000"],
-            "networks": ["sywi-dagster"],
+            # sywi-infra gives access to the shared DuckLake catalog (postgres)
+            # and object storage (seaweedfs) from ../sywi-infra/ducklake.
+            "networks": ["sywi-dagster", "sywi-infra"],
             "restart": "unless-stopped",
             "ulimits": {"nofile": {"soft": 65536, "hard": 65536}},
             "depends_on": {
@@ -155,7 +157,10 @@ def generate_compose(projects: list[str]) -> dict:
 
     return {
         "services": services,
-        "networks": {"sywi-dagster": {"name": "sywi-dagster", "driver": "bridge"}},
+        "networks": {
+            "sywi-dagster": {"name": "sywi-dagster", "driver": "bridge"},
+            "sywi-infra": {"name": "sywi-infra", "external": True},
+        },
         "volumes": {"dagster_pgdata_pg18": None},
     }
 

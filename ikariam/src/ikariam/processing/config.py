@@ -13,7 +13,8 @@ class Config:
     raw_data_dir: Path
     building_costs_path: Path
     output_dir: Path
-    lancedb_path: Path
+    # Local directory, or an object-store URI such as s3://ikariam/ikariam.lancedb
+    lancedb_path: Path | str
 
 
 def project_root() -> Path:
@@ -55,8 +56,13 @@ def load_config() -> Config:
     """Load configuration from environment variables and built-in defaults."""
     raw_data_dir = platform_root() / "data" / "raw" / "ikariam"
     output_dir = _resolve_path(os.environ.get("IKARIAM_OUTPUT_DIR", "output"))
+    resolved_lancedb_path: Path | str
     if lancedb_path := os.environ.get("IKARIAM_LANCEDB_PATH"):
-        resolved_lancedb_path = _resolve_path(lancedb_path)
+        # URIs (s3://...) go to LanceDB as-is; S3 endpoint and credentials come
+        # from the AWS_* environment variables that LanceDB reads natively.
+        resolved_lancedb_path = (
+            lancedb_path if "://" in lancedb_path else _resolve_path(lancedb_path)
+        )
     else:
         resolved_lancedb_path = output_dir / "ikariam.lancedb"
 
