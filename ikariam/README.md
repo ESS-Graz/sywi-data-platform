@@ -208,3 +208,9 @@ SELECT
 FROM island_snapshot
 GROUP BY country_code, island_id;
 ```
+
+## Raw data lineage
+
+How the raw dumps in `data/raw/ikariam/` came about (dumps, MySQL, DuckDB, parquet), which server and
+date each snapshot has, and what the raw data still contains: see
+[`docs/raw_data_to_parquet.md`](docs/raw_data_to_parquet.md).
