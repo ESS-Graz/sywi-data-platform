@@ -528,7 +528,7 @@ def new(
     console.print(f"  1. Add your assets in {dest}/src/{name}/assets/")
     console.print(f"  2. Update {dest}/src/{name}/definitions.py")
     console.print(f"  3. Add any dependencies to {dest}/pyproject.toml")
-    console.print("  4. Run [bold]just dev[/bold] to start the dev environment")
+    console.print("  4. Run [bold]just up[/bold] to start the dev environment")
 
 
 @app.command()

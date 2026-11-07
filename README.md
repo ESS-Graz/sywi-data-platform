@@ -31,19 +31,17 @@ DuckDB CLI is only needed for the `just db` command (interactive SQL session).
 
 ```bash
 # 1. Clone and enter the project
-cd sywi_data_plattform
+git clone https://github.com/ESS-Graz/sywi-data-platform.git
+cd sywi-data-platform
 
 # 2. Create your local environment file
 cp .env.example .env.local
 # Or place the .env.local you received via email in the root folder
 
-# 3. Initialize the local DuckDB data directory - only required once
-just db -l
-
-# 4. Start the development environment
+# 3. Start the development environment
 just up
 
-# 5. Open http://localhost:3000 in your browser
+# 4. Open http://localhost:3000 in your browser
 ```
 
 ## Concepts
@@ -309,14 +307,9 @@ cd hackernews && uv sync && cd ..
 cd ikariam && uv sync && cd ..
 ```
 
-### `just db` fails to connect
+### `just db` fails with "Failed to download extension lance (HTTP 404)"
 
-The dev environment must be running (PostgreSQL needs to be up):
-
-```bash
-just up  # Start first, then in another terminal:
-just db
-```
+The `lance` extension is a core extension from DuckDB 2.0. Check `duckdb --version` and upgrade the DuckDB CLI if it is older than 2.0.
 
 ### Docker permission errors on Linux
 
