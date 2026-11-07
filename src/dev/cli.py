@@ -285,6 +285,29 @@ def _s3_secrets_sql(uris: list[str], use_getenv: bool) -> list[str]:
     return lines
 
 
+def _require_s3_credentials(uris: list[str]) -> None:
+    """Exit with a clear message if an s3:// URI is used without S3 credentials."""
+    if not any(uri.startswith("s3://") for uri in uris):
+        return
+    missing = [
+        name
+        for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
+        if not os.environ.get(name)
+    ]
+    if missing:
+        err_console.print(f"[red]Error:[/red] {', '.join(missing)} not set in .env.local")
+        err_console.print(
+            "S3 access needs AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in .env.local "
+            "(the dev CLI does not read .env). See .env.example."
+        )
+        raise typer.Exit(1)
+
+
+def _stale_variables() -> list[str]:
+    """DuckLake variables that are no longer used."""
+    return sorted(name for name in os.environ if name.startswith("DUCKLAKE_"))
+
+
 def build_duckdb_init_sql(include_remote: bool = True, use_getenv: bool = True) -> str:
     """Build DuckDB initialization SQL with the local and optionally the remote Lance database attached.
 
@@ -293,6 +316,8 @@ def build_duckdb_init_sql(include_remote: bool = True, use_getenv: bool = True) 
     """
     local_uri = _local_lance_uri()
     remote_uri = _remote_lance_uri() if include_remote else ""
+
+    _require_s3_credentials([local_uri, remote_uri])
 
     if not local_uri.startswith("s3://"):
         Path(local_uri).mkdir(parents=True, exist_ok=True)
@@ -567,6 +592,27 @@ def db(
         raise typer.Exit(1)
 
     sql = build_duckdb_init_sql(include_remote=not local_only)
+
+    local_uri = _local_lance_uri()
+    remote_uri = _remote_lance_uri()
+    console.print(f"local:  {local_uri}")
+    if local_only:
+        console.print("remote: skipped (--local-only)")
+    elif remote_uri:
+        console.print(f"remote: {remote_uri}")
+    else:
+        console.print(
+            "[yellow]remote: not configured[/yellow] "
+            "(set LANCE_REMOTE_URI and the AWS_* keys in .env.local, see .env.example)"
+        )
+    stale = _stale_variables()
+    if stale:
+        console.print(
+            f"[yellow]Ignoring unused DuckLake variables in .env.local:[/yellow] {', '.join(stale)}"
+        )
+    console.print("Tables: SHOW ALL TABLES;  (local tables are also reachable without a prefix)")
+    console.print()
+
     raise typer.Exit(run_foreground(["duckdb", "-cmd", sql]))
 
 
