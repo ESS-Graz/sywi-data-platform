@@ -30,19 +30,10 @@ def _scan_file(path: Path) -> pl.LazyFrame:
 def load_raw_table(cfg: Config, table: str) -> pl.DataFrame:
     if table not in RAW_TABLES:
         raise ValueError(f"Unsupported raw table: {table}")
-    if not cfg.countries:
-        layout = f"{cfg.raw_data_dir}/country=<xx>/server=<nn>/snapshot_date=<date>/*.parquet"
-        raise FileNotFoundError(f"No Ikariam countries configured or discoverable. Expected raw files under {layout}")
-
-    files: list[Path] = []
-    for country in cfg.countries:
-        country_dir = cfg.raw_data_dir / f"country={country.lower()}"
-        if not country_dir.exists():
-            raise FileNotFoundError(f"Missing raw data directory for country {country}: {country_dir}")
-        files += sorted(country_dir.glob(f"server=*/snapshot_date=*/{table}_*.parquet"))
+    files = sorted(cfg.raw_data_dir.glob(f"country=*/server=*/snapshot_date=*/{table}_*.parquet"))
     if not files:
-        countries = ", ".join(cfg.countries)
-        raise FileNotFoundError(f"No {table}_*.parquet files found for countries {countries} under {cfg.raw_data_dir}")
+        layout = f"{cfg.raw_data_dir}/country=<xx>/server=<nn>/snapshot_date=<date>/{table}_*.parquet"
+        raise FileNotFoundError(f"No raw {table} files found. Expected {layout}")
 
     # Every file must have the same columns and types; concat fails loudly
     # rather than padding gaps with nulls.
@@ -51,7 +42,7 @@ def load_raw_table(cfg: Config, table: str) -> pl.DataFrame:
         pl.all().exclude(*HIVE_SCHEMA),
         pl.format(
             "{}{}_{}",
-            pl.col("country"),
+            pl.col("country").str.to_lowercase(),
             pl.col("server"),
             pl.col("snapshot_date").dt.strftime("%d%m_%y"),
         ).alias("snapshot_id"),

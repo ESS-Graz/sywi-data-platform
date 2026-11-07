@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -17,7 +16,6 @@ def _cfg(raw_data_dir: Path) -> Config:
     return Config(
         min_registration_time=1366797600,
         wonder_split_factor=0.666667,
-        countries=("DE", "EN"),
         raw_data_dir=raw_data_dir,
         building_costs_path=raw_data_dir / "building_costs.csv",
         output_dir=raw_data_dir / "output",
@@ -40,7 +38,7 @@ def _write_snapshot(
     pl.DataFrame({"ignored": [1]}).write_parquet(snap_dir / "logGovernmentChanges.parquet")
 
 
-def test_raw_loader_discovers_countries_and_adds_snapshot_columns(tmp_path: Path):
+def test_raw_loader_reads_all_countries_and_adds_snapshot_columns(tmp_path: Path):
     raw_root = tmp_path / "ikariam"
     _write_snapshot(raw_root, "de", "2013-04-25", server=23)
     _write_snapshot(raw_root, "en", "2013-05-02", server=22)
@@ -58,7 +56,7 @@ def test_raw_loader_separates_servers_and_widens_integer_types(tmp_path: Path):
     _write_snapshot(raw_root, "de", "2013-04-25", server=23, dtype=pl.UInt32)
     _write_snapshot(raw_root, "de", "2013-04-25", server=24, dtype=pl.Int64)
 
-    df = load_raw_table(replace(_cfg(raw_root), countries=("DE",)), "avatar").sort("server")
+    df = load_raw_table(_cfg(raw_root), "avatar").sort("server")
 
     assert df["snapshot_id"].to_list() == ["de23_2504_13", "de24_2504_13"]
     assert df["registration_time"].dtype == pl.Int64
@@ -78,7 +76,6 @@ def test_config_uses_workspace_raw_convention(monkeypatch, tmp_path: Path):
 
     assert config_module.platform_root() == workspace
     assert cfg.raw_data_dir == raw_root
-    assert cfg.countries == ("DE",)
     assert cfg.building_costs_path == raw_root / "building_costs.csv"
 
 
@@ -93,19 +90,7 @@ def test_config_uses_project_root_without_workspace(monkeypatch, tmp_path: Path)
 
     assert config_module.platform_root() == project
     assert cfg.raw_data_dir == raw_root
-    assert cfg.countries == ("DE",)
     assert cfg.building_costs_path == raw_root / "building_costs.csv"
-
-
-def test_config_rejects_uppercase_country_directories(monkeypatch, tmp_path: Path):
-    project = tmp_path / "ikariam"
-    raw_root = project / "data" / "raw" / "ikariam"
-    _snapshot_dir(raw_root, "DE", 1, "2013-04-25").mkdir(parents=True)
-
-    monkeypatch.setattr(config_module, "project_root", lambda: project)
-
-    with pytest.raises(ValueError, match="Country directories must be lowercase: DE"):
-        load_config()
 
 
 def test_raw_loader_rejects_snapshots_with_different_columns(tmp_path: Path):
@@ -115,7 +100,7 @@ def test_raw_loader_rejects_snapshots_with_different_columns(tmp_path: Path):
     later.mkdir(parents=True)
     pl.DataFrame({"id": ["de-player"]}).write_parquet(later / "avatar_0.parquet")
 
-    cfg = replace(_cfg(raw_root), countries=("DE",))
+    cfg = _cfg(raw_root)
     with pytest.raises(pl.exceptions.PolarsError, match="same schema"):
         load_raw_table(cfg, "avatar")
 

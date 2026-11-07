@@ -9,7 +9,6 @@ from pathlib import Path
 class Config:
     min_registration_time: int
     wonder_split_factor: float
-    countries: tuple[str, ...]
     raw_data_dir: Path
     building_costs_path: Path
     output_dir: Path
@@ -34,24 +33,6 @@ def _resolve_path(value: str | Path) -> Path:
     return (project_root() / path).resolve()
 
 
-def _discover_countries(raw_data_dir: Path) -> tuple[str, ...]:
-    if not raw_data_dir.exists():
-        return ()
-
-    # Hive layout: <raw_data_dir>/country=<xx>/server=<nn>/snapshot_date=<date>/
-    country_dirs = sorted(
-        p.name.removeprefix("country=")
-        for p in raw_data_dir.iterdir()
-        if p.is_dir() and p.name.startswith("country=")
-    )
-    invalid = [name for name in country_dirs if name != name.lower()]
-    if invalid:
-        raise ValueError(
-            "Country directories must be lowercase: " + ", ".join(invalid)
-        )
-    return tuple(name.upper() for name in country_dirs)
-
-
 def load_config() -> Config:
     """Load configuration from environment variables and built-in defaults."""
     raw_data_dir = platform_root() / "data" / "raw" / "ikariam"
@@ -71,7 +52,6 @@ def load_config() -> Config:
         # keeps only players whose registration falls inside the observed window.
         min_registration_time=1366797600,
         wonder_split_factor=0.666667,  # 2/3, rounded; see transforms/donations.py
-        countries=_discover_countries(raw_data_dir),
         raw_data_dir=raw_data_dir,
         building_costs_path=raw_data_dir / "building_costs.csv",
         output_dir=output_dir,
