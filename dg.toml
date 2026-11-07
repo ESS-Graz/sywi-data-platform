@@ -5,7 +5,4 @@ directory_type = "workspace"
 path = "hackernews"
 
 [[workspace.projects]]
-path = "patents"
-
-[[workspace.projects]]
 path = "ikariam"

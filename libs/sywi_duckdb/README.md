@@ -1,32 +1,34 @@
 # sywi-duckdb
 
-DuckDB wrapper with auto-configured SYWI DuckLake connections.
+DuckDB wrapper with auto-configured SYWI Lance connections.
 
 ## Installation
 
 ```bash
-pip install git+https://github.com/sywi/sywi_data_plattform.git#subdirectory=packages/sywi_duckdb
+pip install git+https://github.com/ESS-Graz/sywi-data-platform.git#subdirectory=libs/sywi_duckdb
 
 # Or with uv
-uv add git+https://github.com/sywi/sywi_data_plattform.git#subdirectory=packages/sywi_duckdb
+uv add git+https://github.com/ESS-Graz/sywi-data-platform.git#subdirectory=libs/sywi_duckdb
 ```
+
+Requires DuckDB 2.0 or newer: the `lance` extension is a core extension there.
 
 ## Usage
 
 ```python
 import sywi_duckdb as duckdb
 
-# connect() auto-loads .env.local and attaches local + remote DuckLake
+# connect() auto-loads .env / .env.local and attaches local + remote
 conn = duckdb.connect()
 
 # Query local database
 df = conn.execute("SELECT * FROM local.customers LIMIT 10").fetchdf()
 
-# Query remote database (read-only)
+# Query remote database
 df = conn.execute("SELECT * FROM remote.customers LIMIT 10").fetchdf()
 
-# Copy from remote to local
-conn.execute("CREATE TABLE local.my_copy AS SELECT * FROM remote.customers")
+# Copy a remote table to your local database
+conn.execute("COPY (SELECT * FROM remote.customers) TO './data/lance/customers.lance' (FORMAT lance, mode 'overwrite')")
 
 # All standard duckdb functions still work
 duckdb.query("SELECT 1 + 1")
@@ -37,30 +39,24 @@ duckdb.query("SELECT 1 + 1")
 Create a `.env.local` file in your project root (or any parent directory):
 
 ```bash
-# Local DuckLake
-DUCKLAKE_CATALOG_DSN=./data/ducklake.ducklake
-DUCKLAKE_DATA_PATH=./data/
+# Local Lance database (a directory, default ./data/lance)
+LANCE_URI=./data/lance
 
-# Remote DuckLake
-DUCKLAKE_REMOTE_CATALOG_DSN="dbname=ducklake host=server.com user=... password=... port=5432"
-DUCKLAKE_REMOTE_DATA_PATH=s3://bucket/data/
-DUCKLAKE_REMOTE_S3_REGION=us-east-1
-DUCKLAKE_REMOTE_S3_ENDPOINT=minio.server.com:9000
-DUCKLAKE_REMOTE_S3_ACCESS_KEY_ID=...
-DUCKLAKE_REMOTE_S3_SECRET_ACCESS_KEY=...
-DUCKLAKE_REMOTE_S3_URL_STYLE=path
-DUCKLAKE_REMOTE_S3_USE_SSL=false
+# Remote Lance database (optional)
+LANCE_REMOTE_URI=s3://ikariam/ikariam.lancedb
+
+# S3 credentials, needed when a URI starts with s3://
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_ENDPOINT_URL=https://data.systems-sciences.uni-graz.at
+AWS_REGION=us-east-1
 ```
 
 ## Databases
 
-The connection provides two attached databases:
-
 | Database | Description |
 |----------|-------------|
-| `local`  | Local DuckLake (read-write) |
-| `remote` | Remote DuckLake (read-only) |
+| `local`  | Your local Lance database |
+| `remote` | The remote Lance database (only if `LANCE_REMOTE_URI` is set) |
 
-Always prefix table names with the database name:
-- `local.my_table`
-- `remote.my_table`
+Prefix table names with the database name: `local.my_table`, `remote.my_table`.

@@ -11,7 +11,6 @@ services:
       POSTGRES_DB: dagster_db
     volumes:
     - dagster_pgdata_pg18:/var/lib/postgresql
-    - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     networks:
     - sywi-dagster
     healthcheck:
@@ -40,8 +39,6 @@ services:
       project_hackernews:
         condition: service_started
       project_ikariam:
-        condition: service_started
-      project_patents:
         condition: service_started
     networks:
     - sywi-dagster
@@ -73,8 +70,6 @@ services:
         condition: service_started
       project_ikariam:
         condition: service_started
-      project_patents:
-        condition: service_started
     networks:
     - sywi-dagster
     restart: unless-stopped
@@ -102,26 +97,6 @@ services:
     build:
       context: .
       dockerfile: ikariam/Dockerfile
-    env_file: .env
-    volumes:
-    - ./data/raw:/opt/dagster/app/data/raw:ro
-    expose:
-    - '4000'
-    networks:
-    - sywi-dagster
-    - sywi-infra
-    restart: unless-stopped
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
-    depends_on:
-      postgresql:
-        condition: service_healthy
-  project_patents:
-    build:
-      context: .
-      dockerfile: patents/Dockerfile
     env_file: .env
     volumes:
     - ./data/raw:/opt/dagster/app/data/raw:ro

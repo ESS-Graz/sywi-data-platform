@@ -1,8 +1,8 @@
 # sywi.duckdb
 
-R package for connecting to SYWI DuckLake databases.
+R package for connecting to SYWI Lance databases.
 
-This is a drop-in wrapper around the `duckdb` R package that automatically configures connections to SYWI DuckLake databases. It loads environment variables from `.env` and `.env.local` files and attaches both local and remote DuckLake databases.
+This is a drop-in wrapper around the `duckdb` R package that automatically configures connections to SYWI Lance databases. It loads environment variables from `.env` and `.env.local` files and attaches the local and, if configured, the remote Lance database. It needs the `duckdb` R package 2.0.0 or newer, because the `lance` extension is a core extension from DuckDB 2.0.
 
 ## Installation
 
@@ -13,14 +13,14 @@ Install directly from GitHub:
 install.packages("remotes")
 
 # Install sywi.duckdb
-remotes::install_github("sywi/sywi_data_plattform", subdir = "packages/sywi.duckdb")
+remotes::install_github("ESS-Graz/sywi-data-platform", subdir = "libs/sywi.duckdb")
 ```
 
 Or install from a local clone:
 
 ```r
 # From the repository root
-install.packages("packages/sywi.duckdb", repos = NULL, type = "source")
+install.packages("libs/sywi.duckdb", repos = NULL, type = "source")
 ```
 
 ## Usage
@@ -36,15 +36,14 @@ con <- dbConnect(sywi_duckdb())
 # Query local database
 local_data <- dbGetQuery(con, "SELECT * FROM local.my_table")
 
-# Query remote database (read-only)
+# Query remote database
 remote_data <- dbGetQuery(con, "SELECT * FROM remote.my_table")
 
 # List tables
-local_tables <- dbGetQuery(con, "SHOW TABLES FROM local")
-remote_tables <- dbGetQuery(con, "SHOW TABLES FROM remote")
+all_tables <- dbGetQuery(con, "SELECT database, name FROM (SHOW ALL TABLES)")
 
-# Copy from remote to local
-dbExecute(con, "CREATE OR REPLACE TABLE local.my_table AS SELECT * FROM remote.my_table")
+# Copy a remote table to your local database
+dbExecute(con, "COPY (SELECT * FROM remote.my_table) TO './data/lance/my_table.lance' (FORMAT lance, mode 'overwrite')")
 
 # Disconnect when done
 dbDisconnect(con)
@@ -56,7 +55,7 @@ dbDisconnect(con)
 |-----------------|-------------|
 | `library(duckdb)` | `library(sywi.duckdb)` |
 | `con <- dbConnect(duckdb())` | `con <- dbConnect(sywi_duckdb())` |
-| Manual setup required | Auto-configured with local + remote |
+| Manual setup required | Auto-configured with local + remote Lance |
 
 Everything else (querying, writing, disconnecting) works exactly the same.
 
@@ -64,25 +63,14 @@ Everything else (querying, writing, disconnecting) works exactly the same.
 
 The package automatically loads environment variables from `.env` and `.env.local` files, searching upward from the current working directory. `.env.local` values override `.env` values.
 
-### Required Variables
-
-| Variable | Description |
-|----------|-------------|
-| `DUCKLAKE_CATALOG_DSN` | Local DuckLake catalog path |
-| `DUCKLAKE_DATA_PATH` | Local data path |
-| `DUCKLAKE_REMOTE_CATALOG_DSN` | Remote Postgres connection string |
-| `DUCKLAKE_REMOTE_DATA_PATH` | Remote S3 path |
-| `DUCKLAKE_REMOTE_S3_ENDPOINT` | S3 endpoint |
-| `DUCKLAKE_REMOTE_S3_ACCESS_KEY_ID` | S3 access key |
-| `DUCKLAKE_REMOTE_S3_SECRET_ACCESS_KEY` | S3 secret key |
-
-### Optional Variables
-
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DUCKLAKE_REMOTE_S3_REGION` | `us-east-1` | S3 region |
-| `DUCKLAKE_REMOTE_S3_URL_STYLE` | `path` | S3 URL style |
-| `DUCKLAKE_REMOTE_S3_USE_SSL` | `false` | Use SSL for S3 |
+| `LANCE_URI` | `./data/lance` | Local Lance database (a directory) |
+| `LANCE_REMOTE_URI` | none | Remote Lance database, e.g. `s3://ikariam/ikariam.lancedb` |
+| `AWS_ACCESS_KEY_ID` | none | S3 access key, required when a URI starts with `s3://` |
+| `AWS_SECRET_ACCESS_KEY` | none | S3 secret key, required when a URI starts with `s3://` |
+| `AWS_ENDPOINT_URL` | none | S3 endpoint, e.g. `https://data.systems-sciences.uni-graz.at` |
+| `AWS_REGION` | `us-east-1` | S3 region |
 
 ## Comparison with Python Package
 
@@ -95,5 +83,5 @@ The package automatically loads environment variables from `.env` and `.env.loca
 
 ## Dependencies
 
-- `duckdb` (>= 1.0.0)
+- `duckdb` (>= 2.0.0)
 - `DBI`

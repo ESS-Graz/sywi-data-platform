@@ -1,46 +1,63 @@
-"""Connection wrapper for SYWI DuckLake."""
+"""Connection wrapper for SYWI Lance databases."""
 
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import duckdb
 from dotenv import find_dotenv, load_dotenv
 
+DEFAULT_LANCE_URI = "./data/lance"
+
 
 class ConnectionError(Exception):
-    """Raised when connection to DuckLake fails."""
+    """Raised when connecting to the Lance databases fails."""
 
     pass
 
 
-def _get_required_env(name: str) -> str:
-    """Get required environment variable or raise."""
-    value = os.getenv(name)
-    if not value:
-        raise ConnectionError(f"Required environment variable {name} is not set")
-    return value
+def _sql_str(value: str) -> str:
+    """Quote a value as a SQL string literal."""
+    return "'" + value.replace("'", "''") + "'"
 
 
-def _get_env(name: str, default: str = "") -> str:
-    """Get environment variable with default."""
-    return os.getenv(name, default)
+def _s3_secret_sql(bucket: str) -> str:
+    """CREATE SECRET for one bucket, with credentials from the AWS_* variables."""
+    for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
+        if not os.getenv(name):
+            raise ConnectionError(f"Required environment variable {name} is not set")
+
+    options = [
+        "TYPE lance",
+        "PROVIDER config",
+        f"aws_access_key_id {_sql_str(os.environ['AWS_ACCESS_KEY_ID'])}",
+        f"aws_secret_access_key {_sql_str(os.environ['AWS_SECRET_ACCESS_KEY'])}",
+        f"aws_region {_sql_str(os.getenv('AWS_REGION', 'us-east-1'))}",
+        "aws_virtual_hosted_style_request 'false'",
+        f"SCOPE {_sql_str(f's3://{bucket}/')}",
+    ]
+    if os.getenv("AWS_ENDPOINT_URL"):
+        options.append(f"aws_endpoint {_sql_str(os.environ['AWS_ENDPOINT_URL'])}")
+
+    return f"CREATE SECRET lance_{bucket.replace('-', '_')} ({', '.join(options)})"
 
 
 def connect() -> duckdb.DuckDBPyConnection:
     """
-    Create a DuckDB connection with SYWI DuckLake databases attached.
+    Create a DuckDB connection with the SYWI Lance databases attached.
 
-    Automatically loads environment from .env.local and attaches:
-    - `local`: Local DuckLake database
-    - `remote`: Remote DuckLake database (read-only)
+    Automatically loads environment from .env and .env.local and attaches:
+    - `local`: your local Lance database (LANCE_URI, default ./data/lance)
+    - `remote`: the remote Lance database (LANCE_REMOTE_URI), if configured
+
+    Requires DuckDB 2.0 or newer (the lance extension is a core extension there).
 
     Returns:
-        DuckDB connection with local and remote databases attached.
+        DuckDB connection with `local` (and `remote`) attached.
 
     Raises:
-        ConnectionError: If required environment variables are missing
-            or connection to remote fails.
+        ConnectionError: If S3 credentials are missing or attaching fails.
 
     Example:
         >>> import sywi_duckdb as duckdb
@@ -51,43 +68,29 @@ def connect() -> duckdb.DuckDBPyConnection:
     load_dotenv(find_dotenv(".env"))
     load_dotenv(find_dotenv(".env.local"), override=True)
 
-    local_catalog_dsn = _get_required_env("DUCKLAKE_CATALOG_DSN")
-    local_data_path = _get_required_env("DUCKLAKE_DATA_PATH")
-    remote_catalog_dsn = _get_required_env("DUCKLAKE_REMOTE_CATALOG_DSN")
-    remote_data_path = _get_required_env("DUCKLAKE_REMOTE_DATA_PATH")
+    local_uri = os.getenv("LANCE_URI") or DEFAULT_LANCE_URI
+    remote_uri = os.getenv("LANCE_REMOTE_URI", "")
 
-    s3_region = _get_env("DUCKLAKE_REMOTE_S3_REGION", "us-east-1")
-    s3_endpoint = _get_required_env("DUCKLAKE_REMOTE_S3_ENDPOINT")
-    s3_access_key_id = _get_required_env("DUCKLAKE_REMOTE_S3_ACCESS_KEY_ID")
-    s3_secret_access_key = _get_required_env("DUCKLAKE_REMOTE_S3_SECRET_ACCESS_KEY")
-    s3_url_style = _get_env("DUCKLAKE_REMOTE_S3_URL_STYLE", "path")
-    s3_use_ssl = _get_env("DUCKLAKE_REMOTE_S3_USE_SSL", "false").lower() == "true"
+    if not local_uri.startswith("s3://"):
+        Path(local_uri).mkdir(parents=True, exist_ok=True)
+
+    buckets: list[str] = []
+    for uri in (local_uri, remote_uri):
+        if uri.startswith("s3://") and uri.split("/")[2] not in buckets:
+            buckets.append(uri.split("/")[2])
+
+    statements = ["INSTALL lance", "LOAD lance"]
+    statements.extend(_s3_secret_sql(bucket) for bucket in buckets)
+    statements.append(f"ATTACH {_sql_str(local_uri)} AS local (TYPE lance)")
+    if remote_uri:
+        statements.append(f"ATTACH {_sql_str(remote_uri)} AS remote (TYPE lance)")
 
     conn = duckdb.connect()
-
     try:
-        conn.execute("INSTALL ducklake; INSTALL postgres; INSTALL httpfs;")
-        conn.execute("LOAD ducklake; LOAD postgres; LOAD httpfs;")
-
-        conn.execute(f"SET s3_region = '{s3_region}';")
-        conn.execute(f"SET s3_endpoint = '{s3_endpoint}';")
-        conn.execute(f"SET s3_url_style = '{s3_url_style}';")
-        conn.execute(f"SET s3_access_key_id = '{s3_access_key_id}';")
-        conn.execute(f"SET s3_secret_access_key = '{s3_secret_access_key}';")
-        conn.execute(f"SET s3_use_ssl = {str(s3_use_ssl).lower()};")
-
-        conn.execute(
-            f"ATTACH 'ducklake:{local_catalog_dsn}' AS local "
-            f"(DATA_PATH '{local_data_path}');"
-        )
-
-        conn.execute(
-            f"ATTACH 'ducklake:postgres:{remote_catalog_dsn}' AS remote "
-            f"(DATA_PATH '{remote_data_path}', READ_ONLY);"
-        )
-
+        for statement in statements:
+            conn.execute(statement)
     except duckdb.Error as e:
         conn.close()
-        raise ConnectionError(f"Failed to connect to DuckLake: {e}") from e
+        raise ConnectionError(f"Failed to connect to the Lance databases: {e}") from e
 
     return conn

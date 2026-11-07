@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 
-def test_definitions_load_without_ducklake_env(monkeypatch):
-    for name in ("DUCKLAKE_CATALOG_DSN", "DUCKLAKE_DATA_PATH", "DUCKLAKE_SCHEMA"):
-        monkeypatch.delenv(name, raising=False)
-
+def test_definitions_load():
     from ikariam.definitions import defs
 
     asset_keys = {

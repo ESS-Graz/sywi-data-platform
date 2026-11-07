@@ -126,11 +126,6 @@ def _check_docker_running() -> None:
         raise typer.Exit(1)
 
 
-def _dsn_for_host(dsn: str) -> str:
-    """Convert Docker hostname to localhost for CLI usage outside containers."""
-    return dsn.replace("host=postgresql", "host=localhost")
-
-
 def _wait_for_postgres(max_attempts: int = 30) -> bool:
     """Wait for PostgreSQL to be ready."""
     import socket
@@ -231,50 +226,83 @@ def _sync_subprojects(projects: list[dict] | None = None) -> None:
     console.print()
 
 
-def build_duckdb_init_sql(
-    default_schema: str = "local", include_remote: bool = True
-) -> str:
-    """Build DuckDB initialization SQL with local and optionally remote DuckLake attached."""
-    local_catalog_dsn = _dsn_for_host(os.environ.get("DUCKLAKE_CATALOG_DSN") or "")
-    local_data_path = os.environ.get("DUCKLAKE_DATA_PATH", "")
-    local_schema = os.environ.get("DUCKLAKE_SCHEMA", "local")
+def _sql_str(value: str) -> str:
+    """Quote a value as a SQL string literal."""
+    return "'" + value.replace("'", "''") + "'"
 
-    lines = [
-        "INSTALL ducklake; LOAD ducklake;",
-        "INSTALL postgres; LOAD postgres;",
-    ]
 
-    lines.extend(
-        [
-            "",
-            f"ATTACH 'ducklake:postgres:{local_catalog_dsn}' AS {local_schema} (DATA_PATH '{local_data_path}');",
+def _check_table_name(table: str) -> str:
+    """Only allow plain table names, they are placed inside SQL."""
+    if not re.fullmatch(r"[A-Za-z0-9_]+", table):
+        err_console.print(f"[red]Error:[/red] Invalid table name '{table}'")
+        raise typer.Exit(1)
+    return table
+
+
+def _local_lance_uri() -> str:
+    return os.environ.get("LANCE_URI") or "./data/lance"
+
+
+def _remote_lance_uri() -> str:
+    return os.environ.get("LANCE_REMOTE_URI", "")
+
+
+def _s3_secrets_sql(uris: list[str], use_getenv: bool) -> list[str]:
+    """One Lance S3 secret per bucket used by the given URIs.
+
+    The credentials come from the environment (AWS_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY, optional AWS_ENDPOINT_URL and AWS_REGION).
+    With use_getenv the SQL reads them itself via getenv(), which only the DuckDB CLI
+    offers; this keeps them off the command line. Without it the values are written
+    into the SQL, which is fine for the Python client.
+    """
+
+    def env_value(name: str) -> str:
+        return f"getenv('{name}')" if use_getenv else _sql_str(os.environ[name])
+
+    buckets = []
+    for uri in uris:
+        if uri.startswith("s3://"):
+            bucket = uri.split("/")[2]
+            if bucket not in buckets:
+                buckets.append(bucket)
+
+    region = _sql_str(os.environ.get("AWS_REGION", "us-east-1"))
+    lines = []
+    for bucket in buckets:
+        options = [
+            "TYPE lance",
+            "PROVIDER config",
+            f"aws_access_key_id {env_value('AWS_ACCESS_KEY_ID')}",
+            f"aws_secret_access_key {env_value('AWS_SECRET_ACCESS_KEY')}",
+            f"aws_region {region}",
+            "aws_virtual_hosted_style_request 'false'",
+            f"SCOPE {_sql_str(f's3://{bucket}/')}",
         ]
-    )
+        if os.environ.get("AWS_ENDPOINT_URL"):
+            options.append(f"aws_endpoint {env_value('AWS_ENDPOINT_URL')}")
+        lines.append(f"CREATE SECRET lance_{bucket.replace('-', '_')} ({', '.join(options)});")
+    return lines
 
-    if include_remote:
-        remote_catalog_dsn = os.environ.get("DUCKLAKE_REMOTE_CATALOG_DSN", "")
-        remote_data_path = os.environ.get("DUCKLAKE_REMOTE_DATA_PATH", "")
 
-        lines.extend(
-            [
-                "INSTALL httpfs; LOAD httpfs;",
-                "",
-                f"SET s3_region = '{os.environ.get('DUCKLAKE_REMOTE_S3_REGION', 'us-east-1')}';",
-                f"SET s3_endpoint = '{os.environ.get('DUCKLAKE_REMOTE_S3_ENDPOINT', '')}';",
-                f"SET s3_url_style = '{os.environ.get('DUCKLAKE_REMOTE_S3_URL_STYLE', 'path')}';",
-                f"SET s3_access_key_id = '{os.environ.get('DUCKLAKE_REMOTE_S3_ACCESS_KEY_ID', '')}';",
-                f"SET s3_secret_access_key = '{os.environ.get('DUCKLAKE_REMOTE_S3_SECRET_ACCESS_KEY', '')}';",
-                f"SET s3_use_ssl = {os.environ.get('DUCKLAKE_REMOTE_S3_USE_SSL', 'false')};",
-                f"ATTACH 'ducklake:postgres:{remote_catalog_dsn}' AS remote (DATA_PATH '{remote_data_path}', READ_ONLY);",
-            ]
-        )
+def build_duckdb_init_sql(include_remote: bool = True, use_getenv: bool = True) -> str:
+    """Build DuckDB initialization SQL with the local and optionally the remote Lance database attached.
 
-    lines.extend(
-        [
-            "",
-            f"USE {default_schema};",
-        ]
-    )
+    Tables are then available as local.main.<table> and remote.main.<table>.
+    Use use_getenv=False when the SQL runs in the Python client (see _s3_secrets_sql).
+    """
+    local_uri = _local_lance_uri()
+    remote_uri = _remote_lance_uri() if include_remote else ""
+
+    if not local_uri.startswith("s3://"):
+        Path(local_uri).mkdir(parents=True, exist_ok=True)
+
+    lines = ["INSTALL lance; LOAD lance;", ""]
+    lines.extend(_s3_secrets_sql([local_uri, remote_uri], use_getenv))
+    lines.append(f"ATTACH {_sql_str(local_uri)} AS local (TYPE lance);")
+    if remote_uri:
+        lines.append(f"ATTACH {_sql_str(remote_uri)} AS remote (TYPE lance);")
+    lines.extend(["", "USE local.main;"])
 
     return "\n".join(lines)
 
@@ -522,9 +550,9 @@ def db(
         False, "--local-only", "-l", help="Only attach local database (skip remote)"
     ),
 ):
-    """Open interactive DuckDB session (local + remote attached).
+    """Open interactive DuckDB session (local + remote Lance databases attached).
 
-    Requires DuckDB CLI to be installed separately:
+    Requires the DuckDB CLI (version 2.0 or newer, for the core lance extension):
     - macOS: brew install duckdb
     - Windows: winget install DuckDB.cli
     - Linux: https://duckdb.org/docs/installation/
@@ -564,24 +592,24 @@ def export_table(
         err_console.print("Supported formats: parquet, csv, json, ndjson")
         raise typer.Exit(1)
 
+    if source not in ("local", "remote"):
+        err_console.print(f"[red]Error:[/red] Unknown source '{source}' (local or remote)")
+        raise typer.Exit(1)
+    if source == "remote" and not _remote_lance_uri():
+        err_console.print("[red]Error:[/red] LANCE_REMOTE_URI not set in .env.local")
+        raise typer.Exit(1)
+
+    _check_table_name(table)
     ext, format_opts = format_map[format]
     output_file = f"{table}.{ext}"
-
-    schema = os.environ.get("DUCKLAKE_SCHEMA") or "local"
-    if source == "remote":
-        init_sql = build_duckdb_init_sql("remote")
-        source_table = f"remote.{table}"
-    else:
-        init_sql = build_duckdb_init_sql()
-        source_table = f"{schema}.{table}"
-
-    copy_sql = f"COPY (SELECT * FROM {source_table}) TO '{output_file}' ({format_opts})"
-    count_sql = f"SELECT COUNT(*) FROM {source_table}"
+    source_table = f"{source}.main.{table}"
 
     conn = duckdb.connect()
-    conn.execute(init_sql)
-    conn.execute(copy_sql)
-    result = conn.execute(count_sql).fetchone()
+    conn.execute(build_duckdb_init_sql(use_getenv=False))
+    conn.execute(
+        f"COPY (SELECT * FROM {source_table}) TO {_sql_str(output_file)} ({format_opts})"
+    )
+    result = conn.execute(f"SELECT COUNT(*) FROM {source_table}").fetchone()
     row_count = result[0] if result else 0
     console.print(f"{output_file}: {row_count} rows exported from {source}")
 
@@ -593,39 +621,38 @@ def pull(
     ),
     limit: Optional[int] = typer.Argument(None, help="Limit number of rows to pull"),
 ):
-    """List remote tables or pull table from remote DuckLake."""
-    # Ensure data directory exists
-    (SCRIPT_DIR / "data").mkdir(parents=True, exist_ok=True)
+    """List remote tables or pull a table from the remote Lance database."""
+    if not _remote_lance_uri():
+        err_console.print("[red]Error:[/red] LANCE_REMOTE_URI not set in .env.local")
+        raise typer.Exit(1)
 
-    init_sql = build_duckdb_init_sql()
     conn = duckdb.connect()
-    conn.execute(init_sql)
+    conn.execute(build_duckdb_init_sql(use_getenv=False))
 
-    schema = os.environ.get("DUCKLAKE_SCHEMA") or "local"
     if table is None:
-        # List tables
         console.print("Remote tables:")
-        tables = conn.execute("SELECT name FROM (SHOW TABLES FROM remote)").fetchall()
+        tables = conn.execute(
+            "SELECT name FROM (SHOW ALL TABLES) WHERE database = 'remote' ORDER BY name"
+        ).fetchall()
         for row in tables:
             console.print(row[0])
     else:
-        # Pull table
-        conn.execute(f"DROP TABLE IF EXISTS {schema}.{table}")
+        _check_table_name(table)
+        target = f"{_local_lance_uri().rstrip('/')}/{table}.lance"
+        query = f"SELECT * FROM remote.main.{table}"
         if limit:
-            conn.execute(
-                f"CREATE TABLE {schema}.{table} AS SELECT * FROM remote.{table} LIMIT {limit}"
-            )
-        else:
-            conn.execute(
-                f"CREATE TABLE {schema}.{table} AS SELECT * FROM remote.{table}"
-            )
+            query += f" LIMIT {int(limit)}"
 
-        result = conn.execute(f"SELECT COUNT(*) FROM {schema}.{table}").fetchone()
+        conn.execute(
+            f"COPY ({query}) TO {_sql_str(target)} (FORMAT lance, mode 'overwrite')"
+        )
+
+        result = conn.execute(f"SELECT COUNT(*) FROM local.main.{table}").fetchone()
         row_count = result[0] if result else 0
         console.print(f"{table}: {row_count} rows pulled")
 
         # Mark asset as materialized in native Dagster instance
-        _mark_asset_materialized(table, "Pulled from remote DuckLake")
+        _mark_asset_materialized(table, "Pulled from remote Lance database")
 
 
 @app.command()

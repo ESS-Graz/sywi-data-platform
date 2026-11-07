@@ -1,25 +1,41 @@
 # Agent Instructions
 
-## DuckDB / DuckLake Gotchas
+## DuckDB / Lance Gotchas
 
-### ALTER TABLE ADD COLUMN with DEFAULT
-DuckDB/DuckLake does not support expressions like `FALSE` or `TRUE` as default values in `ALTER TABLE ADD COLUMN` statements. Only literals are supported.
+Tables are LanceDB tables, read with the DuckDB 2.0 core `lance` extension (`INSTALL lance; LOAD lance;`). The Python `duckdb` package must be 2.0 or newer, which needs Python 3.11+.
 
-**This will fail:**
-```sql
-ALTER TABLE my_table ADD COLUMN IF NOT EXISTS is_flag BOOLEAN DEFAULT FALSE
-```
+### S3 access needs a `TYPE lance` secret
+The Lance reader has its own S3 client and ignores DuckDB's regular `TYPE s3` secret and `SET s3_*` settings. The error is `Bucket '<name>' not found`.
 
 **This works:**
 ```sql
-ALTER TABLE my_table ADD COLUMN IF NOT EXISTS is_flag BOOLEAN
+CREATE SECRET ikariam_s3 (
+    TYPE lance, PROVIDER config,
+    aws_access_key_id getenv('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key getenv('AWS_SECRET_ACCESS_KEY'),
+    aws_region 'us-east-1',
+    aws_endpoint 'https://data.systems-sciences.uni-graz.at',
+    aws_virtual_hosted_style_request 'false',
+    SCOPE 's3://ikariam/'
+);
 ```
+`getenv()` exists in the DuckDB CLI but not in the Python client. In Python, put the values into the statement instead.
 
-If you need to set a default value for existing rows, do it in a separate UPDATE statement:
+### COPY to an existing Lance table needs `mode 'overwrite'`
 ```sql
-ALTER TABLE my_table ADD COLUMN IF NOT EXISTS is_flag BOOLEAN;
-UPDATE my_table SET is_flag = false WHERE is_flag IS NULL;
+COPY (SELECT ...) TO 'path/table.lance' (FORMAT lance, mode 'overwrite');
 ```
+Without the mode the statement fails with `Dataset already exists`.
+
+### Attach a directory of tables with `ATTACH`
+```sql
+ATTACH 's3://ikariam/ikariam.lancedb' AS ik (TYPE lance);
+SELECT * FROM ik.main.player_snapshot;
+```
+Once a database is the default catalog (`USE local.main`), a literal path such as `FROM 'x/table.lance'` is rejected as an unsafe dataset name. Use the attached table name instead.
+
+### Column aliases that are keywords need `AS`
+In DuckDB 2.0, `count(*) days` and `date_trunc(...) month` are syntax errors. Write `AS n_days` or `AS mon`.
 
 ## Python Style
 

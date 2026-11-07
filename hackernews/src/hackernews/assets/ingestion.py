@@ -41,7 +41,7 @@ def hackernews_top_stories_ids(context: AssetExecutionContext) -> pd.DataFrame:
     context.log.info(f"Test")
     context.log.info(f"Fetched {len(top_story_ids)} story IDs: {top_story_ids}")
 
-    # Convert to DataFrame for DuckLake storage
+    # Convert to DataFrame for storage
     df = pd.DataFrame({"story_id": top_story_ids})
 
     context.add_output_metadata(

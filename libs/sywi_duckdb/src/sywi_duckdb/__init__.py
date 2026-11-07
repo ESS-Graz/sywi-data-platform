@@ -1,8 +1,8 @@
 """
-SYWI DuckDB - DuckDB wrapper with auto-configured SYWI DuckLake connections.
+SYWI DuckDB - DuckDB wrapper with auto-configured SYWI Lance connections.
 
 This module is a drop-in replacement for duckdb that automatically loads
-environment configuration and attaches local and remote DuckLake databases.
+environment configuration and attaches local and remote Lance databases.
 
 Example:
     >>> import sywi_duckdb as duckdb

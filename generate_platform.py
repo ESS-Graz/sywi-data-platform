@@ -65,7 +65,6 @@ def generate_compose(projects: list[str]) -> dict:
             },
             "volumes": [
                 "dagster_pgdata_pg18:/var/lib/postgresql",
-                "./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro",
             ],
             "networks": ["sywi-dagster"],
             "healthcheck": {
@@ -137,8 +136,8 @@ def generate_compose(projects: list[str]) -> dict:
                 RAW_DATA_VOLUME,
             ],
             "expose": ["4000"],
-            # sywi-infra gives access to the shared DuckLake catalog (postgres)
-            # and object storage (seaweedfs) from ../sywi-infra/ducklake.
+            # sywi-infra gives access to the shared object storage (seaweedfs)
+            # from ../sywi-infra/ducklake.
             "networks": ["sywi-dagster", "sywi-infra"],
             "restart": "unless-stopped",
             "ulimits": {"nofile": {"soft": 65536, "hard": 65536}},

@@ -1,4 +1,4 @@
-"""HackerNews data storage to DuckLake."""
+"""HackerNews data storage in Lance."""
 
 from datetime import datetime
 
@@ -8,14 +8,14 @@ from dagster import AssetExecutionContext, MetadataValue, asset
 
 @asset(
     group_name="hackernews",
-    description="Stores HackerNews stories in DuckLake (Postgres via DuckDB)",
+    description="Stores HackerNews stories as a LanceDB table",
     metadata={
-        "output_format": "DuckLake",
-        "storage": "postgres",
+        "output_format": "Lance",
+        "storage": "lancedb",
     },
-    kinds={"python", "duckdb"},
+    kinds={"python", "lance"},
     tags={
-        "storage": "ducklake",
+        "storage": "lancedb",
     },
     code_version="2.0.1",
 )
@@ -23,14 +23,14 @@ def hackernews_stories(
     context: AssetExecutionContext,
     hackernews_titles: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Store HackerNews titles in DuckLake via IOManager."""
+    """Store HackerNews titles in Lance via IOManager."""
     # hackernews_titles is already a DataFrame from the IOManager
     df = hackernews_titles.copy()
 
     # Add fetched_at timestamp
     df["fetched_at"] = datetime.now()
 
-    context.log.info(f"Prepared {len(df)} stories for DuckLake storage")
+    context.log.info(f"Prepared {len(df)} stories for storage")
 
     # Add preview metadata
     context.add_output_metadata(
@@ -48,5 +48,5 @@ def hackernews_stories(
         }
     )
 
-    # Return DataFrame - IOManager will handle DuckLake storage
+    # Return DataFrame - IOManager will handle Lance storage
     return df

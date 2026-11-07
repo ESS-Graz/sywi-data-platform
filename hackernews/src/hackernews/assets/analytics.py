@@ -183,5 +183,5 @@ def story_analytics(
         }
     )
 
-    # Return DataFrame with analytics columns (drop the list column for DuckLake compatibility)
+    # Return DataFrame with analytics columns (drop the list column to keep the table flat)
     return df.drop(columns=["tech_tags"])

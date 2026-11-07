@@ -1,6 +1,5 @@
-"""SYWI Core - Shared DuckLake utilities for the SYWI data platform."""
+"""SYWI Core - Shared utilities for the SYWI data platform."""
 
-from .ducklake_io_manager import DuckLakeIOManager, ducklake_io_manager
-from .ducklake_resource import DuckLakeResource
+from .lance_io_manager import LanceIOManager, lance_config_from_env, lance_io_manager
 
-__all__ = ["DuckLakeIOManager", "ducklake_io_manager", "DuckLakeResource"]
+__all__ = ["LanceIOManager", "lance_config_from_env", "lance_io_manager"]

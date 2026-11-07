@@ -7,7 +7,6 @@ dependencies = [
     "dagster",
     "dagster-postgres",
     "pandas",
-    "duckdb",
     "sywi-core",
 ]
 

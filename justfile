@@ -37,7 +37,7 @@ logs service="":
 export table format="parquet" source="local":
     uv run dev export {{table}} {{format}} {{source}}
 
-# Pull table from remote DuckLake
+# Pull table from the remote Lance database
 pull table="" limit="":
     uv run dev pull {{table}} {{limit}}
 

@@ -84,58 +84,80 @@ get_env <- function(name, default = "") {
 }
 
 
-#' Setup DuckLake connection
+#' Quote a value as a SQL string literal
+#' @noRd
+sql_str <- function(value) {
+  paste0("'", gsub("'", "''", value, fixed = TRUE), "'")
+}
+
+
+#' Build the SQL statements that attach the Lance databases
 #'
-#' Configures an existing DuckDB connection with SYWI DuckLake databases.
+#' @return A character vector of SQL statements
+#' @noRd
+lance_setup_statements <- function() {
+  local_uri <- get_env("LANCE_URI", "./data/lance")
+  remote_uri <- get_env("LANCE_REMOTE_URI", "")
+
+  if (!startsWith(local_uri, "s3://")) {
+    dir.create(local_uri, recursive = TRUE, showWarnings = FALSE)
+  }
+
+  buckets <- character()
+  for (uri in c(local_uri, remote_uri)) {
+    if (startsWith(uri, "s3://")) {
+      buckets <- union(buckets, strsplit(uri, "/", fixed = TRUE)[[1]][3])
+    }
+  }
+
+  statements <- c("INSTALL lance", "LOAD lance")
+
+  for (bucket in buckets) {
+    options <- c(
+      "TYPE lance",
+      "PROVIDER config",
+      paste("aws_access_key_id", sql_str(get_required_env("AWS_ACCESS_KEY_ID"))),
+      paste("aws_secret_access_key", sql_str(get_required_env("AWS_SECRET_ACCESS_KEY"))),
+      paste("aws_region", sql_str(get_env("AWS_REGION", "us-east-1"))),
+      "aws_virtual_hosted_style_request 'false'",
+      paste("SCOPE", sql_str(sprintf("s3://%s/", bucket)))
+    )
+    if (get_env("AWS_ENDPOINT_URL") != "") {
+      options <- c(options, paste("aws_endpoint", sql_str(get_env("AWS_ENDPOINT_URL"))))
+    }
+    statements <- c(
+      statements,
+      sprintf("CREATE SECRET lance_%s (%s)", gsub("-", "_", bucket), paste(options, collapse = ", "))
+    )
+  }
+
+  statements <- c(statements, sprintf("ATTACH %s AS local (TYPE lance)", sql_str(local_uri)))
+  if (remote_uri != "") {
+    statements <- c(statements, sprintf("ATTACH %s AS remote (TYPE lance)", sql_str(remote_uri)))
+  }
+
+  statements
+}
+
+
+#' Setup Lance connection
+#'
+#' Configures an existing DuckDB connection with the SYWI Lance databases.
 #' @param conn A DuckDB connection
 #' @return The configured connection
 #' @noRd
-setup_ducklake <- function(conn) {
+setup_lance <- function(conn) {
   load_dotenv()
-
-  local_catalog_dsn <- get_required_env("DUCKLAKE_CATALOG_DSN")
-  local_data_path <- get_required_env("DUCKLAKE_DATA_PATH")
-  remote_catalog_dsn <- get_required_env("DUCKLAKE_REMOTE_CATALOG_DSN")
-  remote_data_path <- get_required_env("DUCKLAKE_REMOTE_DATA_PATH")
-
-  s3_region <- get_env("DUCKLAKE_REMOTE_S3_REGION", "us-east-1")
-  s3_endpoint <- get_required_env("DUCKLAKE_REMOTE_S3_ENDPOINT")
-  s3_access_key_id <- get_required_env("DUCKLAKE_REMOTE_S3_ACCESS_KEY_ID")
-  s3_secret_access_key <- get_required_env("DUCKLAKE_REMOTE_S3_SECRET_ACCESS_KEY")
-  s3_url_style <- get_env("DUCKLAKE_REMOTE_S3_URL_STYLE", "path")
-  s3_use_ssl <- tolower(get_env("DUCKLAKE_REMOTE_S3_USE_SSL", "false")) == "true"
 
   tryCatch(
     {
-      DBI::dbExecute(conn, "INSTALL ducklake; INSTALL postgres; INSTALL httpfs;")
-      DBI::dbExecute(conn, "LOAD ducklake; LOAD postgres; LOAD httpfs;")
-
-      DBI::dbExecute(conn, sprintf("SET s3_region = '%s';", s3_region))
-      DBI::dbExecute(conn, sprintf("SET s3_endpoint = '%s';", s3_endpoint))
-      DBI::dbExecute(conn, sprintf("SET s3_url_style = '%s';", s3_url_style))
-      DBI::dbExecute(conn, sprintf("SET s3_access_key_id = '%s';", s3_access_key_id))
-      DBI::dbExecute(conn, sprintf("SET s3_secret_access_key = '%s';", s3_secret_access_key))
-      DBI::dbExecute(conn, sprintf("SET s3_use_ssl = %s;", tolower(as.character(s3_use_ssl))))
-
-      DBI::dbExecute(
-        conn,
-        sprintf(
-          "ATTACH 'ducklake:%s' AS local (DATA_PATH '%s');",
-          local_catalog_dsn, local_data_path
-        )
-      )
-
-      DBI::dbExecute(
-        conn,
-        sprintf(
-          "ATTACH 'ducklake:postgres:%s' AS remote (DATA_PATH '%s', READ_ONLY);",
-          remote_catalog_dsn, remote_data_path
-        )
-      )
+      for (statement in lance_setup_statements()) {
+        DBI::dbExecute(conn, statement)
+      }
     },
     error = function(e) {
       DBI::dbDisconnect(conn)
-      stop(sprintf("Failed to connect to DuckLake: %s", e$message), call. = FALSE)
+      stop(sprintf("Failed to connect to the Lance databases: %s", e$message), call. = FALSE)
     }
   )
 
@@ -145,7 +167,7 @@ setup_ducklake <- function(conn) {
 
 #' SYWI DuckDB Driver
 #'
-#' Creates a DuckDB driver that automatically configures SYWI DuckLake connections.
+#' Creates a DuckDB driver that automatically configures SYWI Lance connections.
 #' Use this as a drop-in replacement for `duckdb::duckdb()`.
 #'
 #' @return A duckdb driver object that can be used with `DBI::dbConnect()`
@@ -153,25 +175,15 @@ setup_ducklake <- function(conn) {
 #' @details
 #' When you connect using this driver, the connection will automatically:
 #' - Load environment variables from .env and .env.local files
-#' - Install and load required DuckDB extensions (ducklake, postgres, httpfs)
-#' - Configure S3 credentials for remote access
-#' - Attach `local` database (read-write) pointing to your local DuckLake
-
-#' - Attach `remote` database (read-only) pointing to the production DuckLake
+#' - Install and load the DuckDB `lance` extension (needs DuckDB 2.0 or newer)
+#' - Attach the `local` database (your local Lance directory)
+#' - Attach the `remote` database, if `LANCE_REMOTE_URI` is set
 #'
-#' Required environment variables:
-#' - `DUCKLAKE_CATALOG_DSN`: Local DuckLake catalog path
-#' - `DUCKLAKE_DATA_PATH`: Local data path
-#' - `DUCKLAKE_REMOTE_CATALOG_DSN`: Remote Postgres connection string
-#' - `DUCKLAKE_REMOTE_DATA_PATH`: Remote S3 path
-#' - `DUCKLAKE_REMOTE_S3_ENDPOINT`: S3 endpoint
-#' - `DUCKLAKE_REMOTE_S3_ACCESS_KEY_ID`: S3 access key
-#' - `DUCKLAKE_REMOTE_S3_SECRET_ACCESS_KEY`: S3 secret key
-#'
-#' Optional environment variables:
-#' - `DUCKLAKE_REMOTE_S3_REGION`: S3 region (default: "us-east-1")
-#' - `DUCKLAKE_REMOTE_S3_URL_STYLE`: S3 URL style (default: "path")
-#' - `DUCKLAKE_REMOTE_S3_USE_SSL`: Use SSL for S3 (default: "false")
+#' Environment variables:
+#' - `LANCE_URI`: local Lance database, a directory (default: "./data/lance")
+#' - `LANCE_REMOTE_URI`: remote Lance database, e.g. "s3://ikariam/ikariam.lancedb" (optional)
+#' - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`: S3 credentials, needed when a URI starts with "s3://"
+#' - `AWS_ENDPOINT_URL`, `AWS_REGION`: optional S3 endpoint and region (default region: "us-east-1")
 #'
 #' @examples
 #' \dontrun{
@@ -183,7 +195,7 @@ setup_ducklake <- function(conn) {
 #' # Query local database
 #' DBI::dbGetQuery(con, "SELECT * FROM local.my_table")
 #'
-#' # Query remote database (read-only)
+#' # Query remote database
 #' DBI::dbGetQuery(con, "SELECT * FROM remote.my_table")
 #'
 #' # Disconnect when done
@@ -200,11 +212,11 @@ sywi_duckdb <- function() {
 }
 
 
-#' Connect to SYWI DuckLake
+#' Connect to SYWI Lance databases
 #'
 #' @param drv A sywi_duckdb driver created by `sywi_duckdb()`
 #' @param ... Additional arguments (ignored, for compatibility)
-#' @return A DBI connection with local and remote DuckLake attached
+#' @return A DBI connection with the local (and remote) Lance database attached
 #'
 #' @rdname sywi_duckdb
 #' @export
@@ -214,11 +226,10 @@ dbConnect.sywi_duckdb_driver <- function(drv, ...) {
   class(drv) <- class(drv)[class(drv) != "sywi_duckdb_driver"]
 
   # Create connection using base duckdb
-
   conn <- DBI::dbConnect(drv, ...)
 
-  # Setup DuckLake
-  setup_ducklake(conn)
+  # Attach the Lance databases
+  setup_lance(conn)
 
   return(conn)
 }

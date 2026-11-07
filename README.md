@@ -1,6 +1,6 @@
 # SYWI Data Platform
 
-A data platform built with [Dagster](https://dagster.io/) and [DuckLake](https://ducklake.select/).
+A data platform built with [Dagster](https://dagster.io/) and [LanceDB](https://lancedb.com/). Assets are stored as Lance tables, which you can query with [DuckDB](https://duckdb.org/) 2.0.
 
 ## Prerequisites
 
@@ -56,14 +56,14 @@ This platform uses Dagster for orchestration. Here's how our terminology maps to
 | **Asset** | Asset | A logical unit of data (e.g., a table, dataset, or file). Defined with the `@asset` decorator. |
 | **Asset Group** | Asset Group | A way to organize assets visually in the Dagster UI using the `group_name` parameter. |
 
-A single project can contain multiple asset groups. For example, the `patents` project has groups like `patent_ingestion`, `patent_extraction`, and `patent_graph`.
+A single project can contain multiple asset groups.
 
 ## Local Development
 
 ### What `just up` Does
 
 1. **Syncs enabled projects** - Creates/updates virtual environments
-2. **Starts PostgreSQL** - Runs in Docker (used by both DuckLake and Dagster)
+2. **Starts PostgreSQL** - Runs in Docker (Dagster stores its run history and metadata there)
 3. **Runs Dagster** - Starts the dev server via `dg dev`
 
 Each project runs in its own isolated Python environment, allowing different dependency versions without conflicts.
@@ -81,18 +81,13 @@ The dev environment automatically detects code changes:
 The `.env.local` file configures your local environment:
 
 ```bash
-# Local DuckLake - PostgreSQL catalog + local file storage
-DUCKLAKE_CATALOG_DSN="dbname=ducklake_catalog host=localhost user=dagster_user password=dagster_password port=5432"
-DUCKLAKE_DATA_PATH=./data/
-DUCKLAKE_SCHEMA=local
+# Local Lance database: one directory, one table per asset
+LANCE_URI=./data/lance
 ```
 
-DuckLake stores:
+Each asset is stored as a LanceDB table named after the asset, for example `./data/lance/hackernews_stories.lance`. Writing an asset replaces the whole table. `LANCE_URI` can also be an S3 path (`s3://bucket/path`), in which case the `AWS_*` credentials from `.env.example` are used.
 
-- **Catalog metadata** in PostgreSQL (`ducklake_catalog` database)
-- **Table data** as Parquet files in `./data/`
-
-Dagster stores its run history and metadata in the same PostgreSQL instance (`dagster_db` database).
+Dagster stores its run history and metadata in PostgreSQL (`dagster_db` database).
 
 ### Running Specific Projects
 
@@ -103,7 +98,7 @@ By default, `just up` starts all projects defined in `dg.toml`. To start only sp
 DEV_PROJECTS=hackernews
 
 # Start multiple projects (comma-separated)
-DEV_PROJECTS=hackernews,patents
+DEV_PROJECTS=hackernews,ikariam
 
 # Start all projects (default if empty or not set)
 # DEV_PROJECTS=
@@ -136,7 +131,7 @@ is required.
 just db
 ```
 
-Opens a DuckDB shell with local and remote DuckLake attached:
+Opens a DuckDB shell (the DuckDB CLI, version 2.0 or newer, must be installed) with your local Lance database attached as `local` and the remote one as `remote`:
 
 ```sql
 -- Show local tables
@@ -145,7 +140,7 @@ SHOW TABLES FROM local;
 -- Query local data
 SELECT * FROM local.hackernews_stories LIMIT 10;
 
--- Query remote data (if configured)
+-- Query remote data (if LANCE_REMOTE_URI is set)
 SELECT * FROM remote.hackernews_stories LIMIT 10;
 ```
 
@@ -153,15 +148,14 @@ Use `just db -l` to skip connecting to remote.
 
 #### Pull Data from Remote
 
-If you have access to a remote DuckLake, configure it in `.env.local`:
+If you have access to a remote Lance database, configure it in `.env.local`:
 
 ```bash
-DUCKLAKE_REMOTE_CATALOG_DSN="dbname=... host=... user=... password=... port=5432"
-DUCKLAKE_REMOTE_DATA_PATH=s3://bucket/path/
-DUCKLAKE_REMOTE_S3_REGION=us-east-1
-DUCKLAKE_REMOTE_S3_ENDPOINT=...
-DUCKLAKE_REMOTE_S3_ACCESS_KEY_ID=...
-DUCKLAKE_REMOTE_S3_SECRET_ACCESS_KEY=...
+LANCE_REMOTE_URI=s3://ikariam/ikariam.lancedb
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_ENDPOINT_URL=https://data.systems-sciences.uni-graz.at
+AWS_REGION=us-east-1
 ```
 
 Then pull tables:
@@ -235,10 +229,12 @@ def my_asset() -> pd.DataFrame:
 
 ## Cross-Project Dependencies
 
-Projects can depend on assets from other projects using DuckLake as the data contract:
+Projects can depend on assets from other projects using the Lance database as the data contract. The table name is the asset name:
 
 ```python
+import lancedb
 from dagster import SourceAsset, asset
+from sywi_core import lance_config_from_env
 
 # Declare external dependency
 hackernews_stories = SourceAsset(
@@ -247,21 +243,22 @@ hackernews_stories = SourceAsset(
 )
 
 @asset(deps=[hackernews_stories])
-def my_analysis(ducklake: DuckLakeResource):
-    with ducklake.get_connection() as conn:
-        df = conn.execute("SELECT * FROM local.hackernews_stories").fetchdf()
+def my_analysis():
+    config = lance_config_from_env()
+    db = lancedb.connect(config["uri"], storage_options=config.get("storage_options"))
+    df = db.open_table("hackernews_stories").to_pandas()
     # ... your analysis
     return result
 ```
 
 ## Client Libraries
 
-For accessing SYWI DuckLake from external scripts or notebooks:
+For accessing the SYWI Lance databases from external scripts or notebooks:
 
 ### Python: sywi-duckdb
 
 ```bash
-pip install git+https://github.com/sywi/sywi_data_plattform.git#subdirectory=libs/sywi_duckdb
+pip install git+https://github.com/ESS-Graz/sywi-data-platform.git#subdirectory=libs/sywi_duckdb
 ```
 
 ```python
@@ -274,7 +271,7 @@ conn.execute("SELECT * FROM local.my_table").fetchdf()
 ### R: sywi.duckdb
 
 ```r
-remotes::install_github("sywi/sywi_data_plattform", subdir = "libs/sywi.duckdb")
+remotes::install_github("ESS-Graz/sywi-data-platform", subdir = "libs/sywi.duckdb")
 ```
 
 ```r
@@ -309,7 +306,7 @@ The subproject virtual environments need to be created. This should happen autom
 
 ```bash
 cd hackernews && uv sync && cd ..
-cd patents && uv sync && cd ..
+cd ikariam && uv sync && cd ..
 ```
 
 ### `just db` fails to connect
@@ -344,14 +341,14 @@ Production runs on Docker with each project as a separate container communicatin
 │                                                             │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
 │  │  PostgreSQL │  │    MinIO    │  │   Dagster Webserver │ │
-│  │  (Dagster + │  │  (S3 data)  │  │     (port 3000)     │ │
-│  │  DuckLake)  │  │             │  │                     │ │
+│  │  (Dagster)  │  │  (S3 data)  │  │     (port 3000)     │ │
+│  │             │  │             │  │                     │ │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘ │
 │         │                │                    │             │
 │  ┌──────┴────────────────┴────────────────────┴──────────┐ │
 │  │              Pipeline Containers (gRPC)               │ │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  │ │
-│  │  │  hackernews  │  │   patents    │  │    ...     │  │ │
+│  │  │  hackernews  │  │   ikariam    │  │    ...     │  │ │
 │  │  │  (port 4000) │  │  (port 4000) │  │            │  │ │
 │  │  └──────────────┘  └──────────────┘  └────────────┘  │ │
 │  └───────────────────────────────────────────────────────┘ │
@@ -363,15 +360,11 @@ Production runs on Docker with each project as a separate container communicatin
 Production `.env` file:
 
 ```bash
-DUCKLAKE_CATALOG_DSN="dbname=ducklake_catalog host=postgresql user=... password=... port=5432"
-DUCKLAKE_DATA_PATH=s3://ducklake/data/
-DUCKLAKE_SCHEMA=sywi
-DUCKLAKE_S3_REGION=us-east-1
-DUCKLAKE_S3_ENDPOINT=minio:9000
-DUCKLAKE_S3_ACCESS_KEY_ID=...
-DUCKLAKE_S3_SECRET_ACCESS_KEY=...
-DUCKLAKE_S3_URL_STYLE=path
-DUCKLAKE_S3_USE_SSL=false
+LANCE_URI=s3://bucket/path
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_ENDPOINT_URL=https://data.systems-sciences.uni-graz.at
+AWS_REGION=us-east-1
 ```
 
 ### Deployment Scripts
