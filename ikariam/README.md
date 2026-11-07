@@ -16,6 +16,18 @@ Two event ledgers record construction history at a finer grain:
 - `building_construction_event` (grain: one row per building level ever constructed)
 - `building_demolition_event` (grain: one row per building level that stopped standing)
 
+## Output Location
+
+The tables are written to LanceDB. By default that is `ikariam/output/ikariam.lancedb`.
+Set `IKARIAM_LANCEDB_PATH` to write somewhere else, either a local directory or an
+object-store URI such as `s3://ikariam/ikariam.lancedb`. For S3, LanceDB takes the
+endpoint and credentials from the standard `AWS_*` variables (`AWS_ENDPOINT`,
+`AWS_REGION`, `AWS_ALLOW_HTTP`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`). In
+production the output goes to the `ikariam` bucket on SeaweedFS.
+
+Query the S3 copy with the DuckDB 2.0 CLI using the files in `sql/explore/`
+(`./run.sh 02_players.sql`).
+
 ## Data Denormalization & Normalization Philosophy
 
 To support rich analytical workloads, we deliberately choose a denormalized design for the `city_snapshot` table:

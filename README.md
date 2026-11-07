@@ -25,7 +25,7 @@ docker login dhi.io
 |------|-------|---------|-------|
 | [DuckDB CLI](https://duckdb.org/docs/installation/) | `brew install duckdb` | `winget install DuckDB.cli` | [See docs](https://duckdb.org/docs/installation/) |
 
-DuckDB CLI is only needed for the `just db` command (interactive SQL session).
+DuckDB CLI (version 2.0 or newer, for the core `lance` extension) is only needed for the `just db` command (interactive SQL session).
 
 ## Quick Start
 
@@ -333,7 +333,7 @@ Production runs on Docker with each project as a separate container communicatin
 │                        Server                               │
 │                                                             │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
-│  │  PostgreSQL │  │    MinIO    │  │   Dagster Webserver │ │
+│  │  PostgreSQL │  │  SeaweedFS  │  │   Dagster Webserver │ │
 │  │  (Dagster)  │  │  (S3 data)  │  │     (port 3000)     │ │
 │  │             │  │             │  │                     │ │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘ │

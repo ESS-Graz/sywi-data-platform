@@ -137,7 +137,7 @@ def generate_compose(projects: list[str]) -> dict:
             ],
             "expose": ["4000"],
             # sywi-infra gives access to the shared object storage (seaweedfs)
-            # from ../sywi-infra/ducklake.
+            # from ../sywi-infra/seaweedfs.
             "networks": ["sywi-dagster", "sywi-infra"],
             "restart": "unless-stopped",
             "ulimits": {"nofile": {"soft": 65536, "hard": 65536}},
