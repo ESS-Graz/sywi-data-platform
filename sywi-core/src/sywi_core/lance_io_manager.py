@@ -26,7 +26,9 @@ def lance_config_from_env() -> dict:
 
     LANCE_URI is a local directory (default ./data/lance) or an S3 path such as
     s3://bucket/path. For S3 the credentials come from AWS_ACCESS_KEY_ID and
-    AWS_SECRET_ACCESS_KEY, plus the optional AWS_ENDPOINT_URL and AWS_REGION.
+    AWS_SECRET_ACCESS_KEY, plus the optional AWS_ENDPOINT_URL (or AWS_ENDPOINT),
+    AWS_REGION and AWS_ALLOW_HTTP, which the production .env uses for the internal
+    SeaweedFS endpoint http://seaweedfs:8333.
     """
     uri = os.environ.get("LANCE_URI", DEFAULT_LANCE_URI)
     config: dict = {"uri": uri}
@@ -38,8 +40,11 @@ def lance_config_from_env() -> dict:
             "aws_region": os.environ.get("AWS_REGION", "us-east-1"),
             "aws_virtual_hosted_style_request": "false",
         }
-        if "AWS_ENDPOINT_URL" in os.environ:
-            options["aws_endpoint"] = os.environ["AWS_ENDPOINT_URL"]
+        endpoint = os.environ.get("AWS_ENDPOINT_URL") or os.environ.get("AWS_ENDPOINT")
+        if endpoint:
+            options["aws_endpoint"] = endpoint
+        if os.environ.get("AWS_ALLOW_HTTP", "").lower() == "true":
+            options["aws_allow_http"] = "true"
         config["storage_options"] = options
 
     return config

@@ -49,3 +49,16 @@ def test_config_s3_uses_aws_variables(monkeypatch):
     options = lance_config_from_env()["storage_options"]
     assert options["aws_endpoint"] == "https://example.org"
     assert options["aws_virtual_hosted_style_request"] == "false"
+    assert "aws_allow_http" not in options
+
+
+def test_config_accepts_the_production_variable_names(monkeypatch):
+    monkeypatch.setenv("LANCE_URI", "s3://hackernews/lance")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.delenv("AWS_ENDPOINT_URL", raising=False)
+    monkeypatch.setenv("AWS_ENDPOINT", "http://seaweedfs:8333")
+    monkeypatch.setenv("AWS_ALLOW_HTTP", "true")
+    options = lance_config_from_env()["storage_options"]
+    assert options["aws_endpoint"] == "http://seaweedfs:8333"
+    assert options["aws_allow_http"] == "true"
