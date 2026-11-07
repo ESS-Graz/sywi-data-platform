@@ -243,8 +243,26 @@ def _local_lance_uri() -> str:
     return os.environ.get("LANCE_URI") or "./data/lance"
 
 
-def _remote_lance_uri() -> str:
-    return os.environ.get("LANCE_REMOTE_URI", "")
+def _remote_lance_uris() -> dict[str, str]:
+    """Remote Lance databases from LANCE_REMOTE_URI, as {name: uri}.
+
+    One plain URI is attached as `remote`. Several are written as comma separated
+    `name=uri` pairs, for example
+    `ikariam=s3://ikariam/ikariam.lancedb,hackernews=s3://hackernews/lance`,
+    and each one is attached under its name.
+    """
+    remotes: dict[str, str] = {}
+    for part in (p.strip() for p in os.environ.get("LANCE_REMOTE_URI", "").split(",")):
+        if not part:
+            continue
+        name, separator, uri = part.partition("=")
+        if not separator:
+            name, uri = "remote", part
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", name) or name == "local" or name in remotes:
+            err_console.print(f"[red]Error:[/red] Invalid or duplicate remote name '{name}' in LANCE_REMOTE_URI")
+            raise typer.Exit(1)
+        remotes[name] = uri
+    return remotes
 
 
 def _s3_secrets_sql(uris: list[str], use_getenv: bool) -> list[str]:
@@ -311,22 +329,22 @@ def _stale_variables() -> list[str]:
 def build_duckdb_init_sql(include_remote: bool = True, use_getenv: bool = True) -> str:
     """Build DuckDB initialization SQL with the local and optionally the remote Lance database attached.
 
-    Tables are then available as local.main.<table> and remote.main.<table>.
+    Tables are then available as local.main.<table> and <remote name>.main.<table>.
     Use use_getenv=False when the SQL runs in the Python client (see _s3_secrets_sql).
     """
     local_uri = _local_lance_uri()
-    remote_uri = _remote_lance_uri() if include_remote else ""
+    remotes = _remote_lance_uris() if include_remote else {}
 
-    _require_s3_credentials([local_uri, remote_uri])
+    _require_s3_credentials([local_uri, *remotes.values()])
 
     if not local_uri.startswith("s3://"):
         Path(local_uri).mkdir(parents=True, exist_ok=True)
 
     lines = ["INSTALL lance; LOAD lance;", ""]
-    lines.extend(_s3_secrets_sql([local_uri, remote_uri], use_getenv))
+    lines.extend(_s3_secrets_sql([local_uri, *remotes.values()], use_getenv))
     lines.append(f"ATTACH {_sql_str(local_uri)} AS local (TYPE lance);")
-    if remote_uri:
-        lines.append(f"ATTACH {_sql_str(remote_uri)} AS remote (TYPE lance);")
+    for name, uri in remotes.items():
+        lines.append(f"ATTACH {_sql_str(uri)} AS {name} (TYPE lance);")
     lines.extend(["", "USE local.main;"])
 
     return "\n".join(lines)
@@ -594,12 +612,13 @@ def db(
     sql = build_duckdb_init_sql(include_remote=not local_only)
 
     local_uri = _local_lance_uri()
-    remote_uri = _remote_lance_uri()
+    remotes = _remote_lance_uris()
     console.print(f"local:  {local_uri}")
     if local_only:
         console.print("remote: skipped (--local-only)")
-    elif remote_uri:
-        console.print(f"remote: {remote_uri}")
+    elif remotes:
+        for name, uri in remotes.items():
+            console.print(f"{name}: {uri}")
     else:
         console.print(
             "[yellow]remote: not configured[/yellow] "
@@ -622,7 +641,7 @@ def export_table(
     format: str = typer.Argument(
         "parquet", help="Export format: parquet, csv, json, ndjson"
     ),
-    source: str = typer.Argument("local", help="Data source: local or remote"),
+    source: str = typer.Argument("local", help="Data source: local or the name of a remote"),
 ):
     """Export table to local file."""
     # Validate format
@@ -638,11 +657,12 @@ def export_table(
         err_console.print("Supported formats: parquet, csv, json, ndjson")
         raise typer.Exit(1)
 
-    if source not in ("local", "remote"):
-        err_console.print(f"[red]Error:[/red] Unknown source '{source}' (local or remote)")
-        raise typer.Exit(1)
-    if source == "remote" and not _remote_lance_uri():
-        err_console.print("[red]Error:[/red] LANCE_REMOTE_URI not set in .env.local")
+    remotes = _remote_lance_uris()
+    if source != "local" and source not in remotes:
+        err_console.print(
+            f"[red]Error:[/red] Unknown source '{source}'. "
+            f"Available: {', '.join(['local', *remotes]) or 'local'} (remotes come from LANCE_REMOTE_URI)"
+        )
         raise typer.Exit(1)
 
     _check_table_name(table)
@@ -666,39 +686,55 @@ def pull(
         None, help="Table to pull (omit to list tables)"
     ),
     limit: Optional[int] = typer.Argument(None, help="Limit number of rows to pull"),
+    source: Optional[str] = typer.Option(
+        None, "--from", "-f", help="Name of the remote database (if there are several)"
+    ),
 ):
-    """List remote tables or pull a table from the remote Lance database."""
-    if not _remote_lance_uri():
+    """List remote tables or pull a table from a remote Lance database."""
+    remotes = _remote_lance_uris()
+    if not remotes:
         err_console.print("[red]Error:[/red] LANCE_REMOTE_URI not set in .env.local")
+        raise typer.Exit(1)
+    if source is not None and source not in remotes:
+        err_console.print(f"[red]Error:[/red] Unknown remote '{source}'. Available: {', '.join(remotes)}")
         raise typer.Exit(1)
 
     conn = duckdb.connect()
     conn.execute(build_duckdb_init_sql(use_getenv=False))
 
+    names = ", ".join(_sql_str(name) for name in (remotes if source is None else [source]))
+    found = conn.execute(
+        f"SELECT database, name FROM (SHOW ALL TABLES) WHERE database IN ({names}) ORDER BY database, name"
+    ).fetchall()
+
     if table is None:
         console.print("Remote tables:")
-        tables = conn.execute(
-            "SELECT name FROM (SHOW ALL TABLES) WHERE database = 'remote' ORDER BY name"
-        ).fetchall()
-        for row in tables:
-            console.print(row[0])
-    else:
-        _check_table_name(table)
-        target = f"{_local_lance_uri().rstrip('/')}/{table}.lance"
-        query = f"SELECT * FROM remote.main.{table}"
-        if limit:
-            query += f" LIMIT {int(limit)}"
+        for database, name in found:
+            console.print(name if len(remotes) == 1 else f"{database}.{name}")
+        return
 
-        conn.execute(
-            f"COPY ({query}) TO {_sql_str(target)} (FORMAT lance, mode 'overwrite')"
-        )
+    _check_table_name(table)
+    sources = [database for database, name in found if name == table]
+    if not sources:
+        err_console.print(f"[red]Error:[/red] Table '{table}' not found in {', '.join(remotes) if source is None else source}")
+        raise typer.Exit(1)
+    if len(sources) > 1:
+        err_console.print(f"[red]Error:[/red] Table '{table}' exists in {', '.join(sources)}. Choose one with --from.")
+        raise typer.Exit(1)
 
-        result = conn.execute(f"SELECT COUNT(*) FROM local.main.{table}").fetchone()
-        row_count = result[0] if result else 0
-        console.print(f"{table}: {row_count} rows pulled")
+    target = f"{_local_lance_uri().rstrip('/')}/{table}.lance"
+    query = f"SELECT * FROM {sources[0]}.main.{table}"
+    if limit:
+        query += f" LIMIT {int(limit)}"
 
-        # Mark asset as materialized in native Dagster instance
-        _mark_asset_materialized(table, "Pulled from remote Lance database")
+    conn.execute(f"COPY ({query}) TO {_sql_str(target)} (FORMAT lance, mode 'overwrite')")
+
+    result = conn.execute(f"SELECT COUNT(*) FROM local.main.{table}").fetchone()
+    row_count = result[0] if result else 0
+    console.print(f"{table}: {row_count} rows pulled from {sources[0]}")
+
+    # Mark asset as materialized in native Dagster instance
+    _mark_asset_materialized(table, "Pulled from remote Lance database")
 
 
 @app.command()

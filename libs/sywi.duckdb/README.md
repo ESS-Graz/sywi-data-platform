@@ -66,7 +66,7 @@ The package automatically loads environment variables from `.env` and `.env.loca
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LANCE_URI` | `./data/lance` | Local Lance database (a directory) |
-| `LANCE_REMOTE_URI` | none | Remote Lance database, e.g. `s3://ikariam/ikariam.lancedb` |
+| `LANCE_REMOTE_URI` | none | One remote Lance database, e.g. `s3://ikariam/ikariam.lancedb`. The R package supports a single URI only; the `name=uri,...` form of the other tools is not supported here yet. |
 | `AWS_ACCESS_KEY_ID` | none | S3 access key, required when a URI starts with `s3://` |
 | `AWS_SECRET_ACCESS_KEY` | none | S3 secret key, required when a URI starts with `s3://` |
 | `AWS_ENDPOINT_URL` | none | S3 endpoint, e.g. `https://data.systems-sciences.uni-graz.at` |

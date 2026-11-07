@@ -42,8 +42,9 @@ Create a `.env.local` file in your project root (or any parent directory):
 # Local Lance database (a directory, default ./data/lance)
 LANCE_URI=./data/lance
 
-# Remote Lance database (optional)
-LANCE_REMOTE_URI=s3://ikariam/ikariam.lancedb
+# Remote Lance database (optional). One URI is attached as `remote`; several are
+# comma separated name=uri pairs, attached under their names:
+LANCE_REMOTE_URI=ikariam=s3://ikariam/ikariam.lancedb,hackernews=s3://hackernews/lance
 
 # S3 credentials, needed when a URI starts with s3://
 AWS_ACCESS_KEY_ID=...
@@ -57,6 +58,7 @@ AWS_REGION=us-east-1
 | Database | Description |
 |----------|-------------|
 | `local`  | Your local Lance database |
-| `remote` | The remote Lance database (only if `LANCE_REMOTE_URI` is set) |
+| `remote` | The remote Lance database (a single URI in `LANCE_REMOTE_URI`) |
+| `<name>` | With several remotes, each one under its own name, for example `ikariam.player_snapshot` |
 
 Prefix table names with the database name: `local.my_table`, `remote.my_table`.

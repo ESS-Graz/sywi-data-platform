@@ -138,18 +138,19 @@ SHOW TABLES FROM local;
 -- Query local data
 SELECT * FROM local.hackernews_stories LIMIT 10;
 
--- Query remote data (if LANCE_REMOTE_URI is set)
+-- Query remote data (if LANCE_REMOTE_URI is set; with several remotes use their names)
 SELECT * FROM remote.hackernews_stories LIMIT 10;
+SELECT * FROM hackernews.hackernews_stories LIMIT 10;
 ```
 
 Use `just db -l` to skip connecting to remote.
 
 #### Pull Data from Remote
 
-If you have access to a remote Lance database, configure it in `.env.local`:
+If you have access to remote Lance databases, configure them in `.env.local`. A single URI is attached as `remote`. For several, give each a name (`name=uri`, comma separated); each is attached under its name:
 
 ```bash
-LANCE_REMOTE_URI=s3://ikariam/ikariam.lancedb
+LANCE_REMOTE_URI=ikariam=s3://ikariam/ikariam.lancedb,hackernews=s3://hackernews/lance
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 AWS_ENDPOINT_URL=https://data.systems-sciences.uni-graz.at
@@ -167,6 +168,10 @@ just pull hackernews_stories
 
 # Pull only 1000 rows (faster iteration)
 just pull hackernews_stories 1000
+
+# With several remotes the list shows <remote>.<table>. A table that exists in
+# only one remote is found automatically; otherwise choose with --from
+just pull player_snapshot 1000 --from ikariam
 ```
 
 Pulled tables are automatically marked as materialized in Dagster.
@@ -180,8 +185,9 @@ just export customers
 # Export as CSV
 just export customers csv
 
-# Export remote table
+# Export a remote table (name of the remote: `remote`, or its name from LANCE_REMOTE_URI)
 just export customers parquet remote
+just export hackernews_stories csv hackernews
 ```
 
 Supported formats: `parquet`, `csv`, `json`, `ndjson`
@@ -290,6 +296,7 @@ dbGetQuery(con, "SELECT * FROM local.my_table")
 | `just pull` | List remote tables |
 | `just pull <table>` | Pull table from remote |
 | `just pull <table> <limit>` | Pull limited rows |
+| `just pull ... --from <name>` | Pull from a specific remote (when there are several) |
 | `just export <table> [format] [source]` | Export table to file |
 | `just logs [service]` | View Docker logs |
 | `just prod` | Start production-like environment |
