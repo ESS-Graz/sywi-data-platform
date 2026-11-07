@@ -243,6 +243,10 @@ def _local_lance_uri() -> str:
     return os.environ.get("LANCE_URI") or "./data/lance"
 
 
+# `pull` asks for confirmation above this many rows when no row limit is given.
+PULL_ROW_WARNING = 5_000_000
+
+
 def _remote_lance_uris() -> dict[str, str]:
     """Remote Lance databases from LANCE_REMOTE_URI, as {name: uri}.
 
@@ -689,6 +693,9 @@ def pull(
     source: Optional[str] = typer.Option(
         None, "--from", "-f", help="Name of the remote database (if there are several)"
     ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help=f"Pull a table of more than {PULL_ROW_WARNING:,} rows without a row limit"
+    ),
 ):
     """List remote tables or pull a table from a remote Lance database."""
     remotes = _remote_lance_uris()
@@ -726,6 +733,19 @@ def pull(
     query = f"SELECT * FROM {sources[0]}.main.{table}"
     if limit:
         query += f" LIMIT {int(limit)}"
+    elif not yes:
+        # The row count comes from the Lance metadata, so this is quick even for huge tables.
+        result = conn.execute(f"SELECT COUNT(*) FROM {sources[0]}.main.{table}").fetchone()
+        total = result[0] if result else 0
+        if total > PULL_ROW_WARNING:
+            err_console.print(
+                f"[red]Error:[/red] {sources[0]}.{table} has {total:,} rows and would be copied "
+                f"completely to {target}."
+            )
+            err_console.print(
+                f"Give a row limit (for example 'just pull {table} 10000') or confirm with --yes."
+            )
+            raise typer.Exit(1)
 
     conn.execute(f"COPY ({query}) TO {_sql_str(target)} (FORMAT lance, mode 'overwrite')")
 

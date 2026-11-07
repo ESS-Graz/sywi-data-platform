@@ -35,7 +35,7 @@ SELECT * FROM ik.main.player_snapshot;
 Once a database is the default catalog (`USE local.main`), a literal path such as `FROM 'x/table.lance'` is rejected as an unsafe dataset name. Use the attached table name instead.
 
 ### Several remote databases
-`LANCE_REMOTE_URI` takes one URI (attached as `remote`) or comma separated `name=uri` pairs (each attached under its name, e.g. `ikariam.player_snapshot`). Every Dagster project writes to its own database, so a single remote only shows one project's tables. The R package supports a single URI only.
+`LANCE_REMOTE_URI` takes one URI (attached as `remote`) or comma separated `name=uri` pairs (each attached under its name, e.g. `ikariam.player_snapshot`). Every Dagster project writes to its own database, so a single remote only shows one project's tables. The R package supports a single URI only. `just pull` refuses tables above 5 million rows unless a row limit or `--yes` is given.
 
 ### Column aliases that are keywords need `AS`
 In DuckDB 2.0, `count(*) days` and `date_trunc(...) month` are syntax errors. Write `AS n_days` or `AS mon`.

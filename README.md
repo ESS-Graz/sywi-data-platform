@@ -174,6 +174,10 @@ just pull hackernews_stories 1000
 just pull player_snapshot 1000 --from ikariam
 ```
 
+Pulling a table of more than 5 million rows without a row limit is refused, so you do not copy
+a huge table by accident (`patents.google_patents` has 116 million rows). Give a limit, or
+confirm with `--yes`.
+
 Pulled tables are automatically marked as materialized in Dagster.
 
 #### Export Data
