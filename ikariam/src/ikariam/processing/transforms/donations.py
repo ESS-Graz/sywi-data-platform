@@ -18,13 +18,9 @@ import polars as pl
 from ..config import Config
 
 
-def process_donations(
-    donation_raw: pl.DataFrame,
-    city_player_island: pl.DataFrame,
-    island_raw: pl.DataFrame,
-    cfg: Config,
-) -> pl.DataFrame:
-    work = donation_raw.with_columns(
+def split_donation_types(donation_raw: pl.DataFrame) -> pl.DataFrame:
+    """Add one amount column per donation type (wonder, sawmill, luxury mine)."""
+    return donation_raw.with_columns(
         pl.col("type").cast(pl.Int64, strict=False),
         pl.col("gold").cast(pl.Float64, strict=False).fill_null(0.0),
     ).with_columns(
@@ -33,6 +29,15 @@ def process_donations(
         pl.when(pl.col("type") == 3).then(pl.col("gold")).otherwise(0.0).alias("Don_Luxusminen"),
         pl.col("gold").alias("Don_Ges_raw"),
     )
+
+
+def process_donations(
+    donation_raw: pl.DataFrame,
+    city_player_island: pl.DataFrame,
+    island_raw: pl.DataFrame,
+    cfg: Config,
+) -> pl.DataFrame:
+    work = split_donation_types(donation_raw)
 
     # AUDITED grouping: (avatar_id, island_id, snapshot_id) only.
     agg = work.group_by(["avatar_id", "island_id", "snapshot_id"]).agg(
@@ -54,9 +59,10 @@ def process_donations(
     )
 
     # Filter donations without a matching city. Legacy SQL name:
-    # Q29_Delete_Donations_without_city. This is why donations targeting
-    # islands the avatar doesn't occupy (e.g. wonder gifts to foreign islands)
-    # don't contribute to A_DS aggregates.
+    # Q29_Delete_Donations_without_city. The raw amounts are running totals, so
+    # an island the player has left (mostly a relocated city) keeps its old
+    # amount; these rows have no city to attach to at player-island grain.
+    # Player totals (higher_agg.donations_by_avatar) read the raw rows and keep them.
     agg = agg.join(
         city_keys, on=["avatar_id", "island_id", "snapshot_id"], how="semi"
     )

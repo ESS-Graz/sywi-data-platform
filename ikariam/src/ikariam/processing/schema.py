@@ -192,6 +192,16 @@ RESEARCH_COST_ESTIMATE_DOCS: dict[str, dict[str, str]] = {
 }
 
 
+# Raw donation amounts are running totals per player, island and type: each
+# snapshot carries everything donated up to that day, never the donations of
+# that week alone. Summing a donation column across snapshots counts the same
+# donations many times.
+_CUMULATIVE_NOTE = "up to this snapshot (running total, not this week's donations; do not sum across snapshots)"
+_PLAYER_DONATION_SCOPE = f"by this player on every island, including islands where the player no longer has a city, {_CUMULATIVE_NOTE}"
+_PLAYER_ISLAND_DONATION_SCOPE = f"by this player on this island, {_CUMULATIVE_NOTE}"
+_ISLAND_DONATION_SCOPE = f"by players who have a city on this island at this snapshot, {_CUMULATIVE_NOTE}"
+
+
 PLAYER_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     "player_id": {"description": "SHA1 of the player account", "unit": "id"},
     "snapshot_id": {"description": "Snapshot identifier, e.g. de23_1311_14", "unit": "id"},
@@ -219,12 +229,12 @@ PLAYER_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     **_estimated_resource_value_docs("across this player's cities"),
     **_construction_docs("across this player's cities"),
     "building_levels_total": {"description": "Sum of all building levels, including town halls", "unit": "sum_levels"},
-    "wonder_donations_total": {"description": "Donations to wonders", "unit": "gold"},
-    "sawmill_donations_total": {"description": "Donations to sawmills", "unit": "gold"},
-    "luxury_mine_donations_total": {"description": "Donations to luxury mines", "unit": "gold"},
-    "donations_total": {"description": "All donations", "unit": "gold"},
+    "wonder_donations_total": {"description": f"Wonder donations {_PLAYER_DONATION_SCOPE}", "unit": "gold"},
+    "sawmill_donations_total": {"description": f"Sawmill donations {_PLAYER_DONATION_SCOPE}", "unit": "gold"},
+    "luxury_mine_donations_total": {"description": f"Luxury mine donations {_PLAYER_DONATION_SCOPE}", "unit": "gold"},
+    "donations_total": {"description": f"All donations {_PLAYER_DONATION_SCOPE}", "unit": "gold"},
     "wonder_and_luxury_mine_donations_total": {
-        "description": "Wonder plus luxury mine donations",
+        "description": f"Wonder plus luxury mine donations {_PLAYER_DONATION_SCOPE}",
         "unit": "gold",
     },
 }
@@ -253,10 +263,10 @@ CITY_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     **_estimated_resource_value_docs("in this city"),
     **_construction_docs("in this city"),
     "building_levels_total": {"description": "Sum of all building levels in this city, including the town hall", "unit": "sum_levels"},
-    "wonder_donations_total": {"description": "Wonder donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
-    "sawmill_donations_total": {"description": "Sawmill donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
-    "luxury_mine_donations_total": {"description": "Luxury mine donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
-    "donations_total": {"description": "All donations of this player on this island (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
+    "wonder_donations_total": {"description": f"Wonder donations {_PLAYER_ISLAND_DONATION_SCOPE} (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
+    "sawmill_donations_total": {"description": f"Sawmill donations {_PLAYER_ISLAND_DONATION_SCOPE} (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
+    "luxury_mine_donations_total": {"description": f"Luxury mine donations {_PLAYER_ISLAND_DONATION_SCOPE} (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
+    "donations_total": {"description": f"All donations {_PLAYER_ISLAND_DONATION_SCOPE} (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
     "wonder_type_id": {"description": "Wonder type id on this island (intentionally duplicated across cities on this island)", "unit": "enum"},
     "wonder_level": {"description": "Wonder level (intentionally duplicated across cities on this island)", "unit": "level"},
     "wonder_belief": {"description": "Wonder belief points (intentionally duplicated across cities on this island)", "unit": "points"},
@@ -336,11 +346,11 @@ ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     **_construction_docs("across players on this island"),
     "building_levels_total": {"description": "Sum of building levels across players, including town halls", "unit": "sum_levels"},
     "avg_population_per_player": {"description": "Average population per player", "unit": "count"},
-    "donating_player_count": {"description": "Players with donations at this snapshot", "unit": "count"},
-    "wonder_donations_total": {"description": "Wonder donations", "unit": "gold"},
-    "sawmill_donations_total": {"description": "Sawmill donations", "unit": "gold"},
-    "luxury_mine_donations_total": {"description": "Luxury mine donations", "unit": "gold"},
-    "donations_total": {"description": "All donations", "unit": "gold"},
+    "donating_player_count": {"description": "Players with a city on this island whose running donation total here is above zero", "unit": "count"},
+    "wonder_donations_total": {"description": f"Wonder donations {_ISLAND_DONATION_SCOPE}", "unit": "gold"},
+    "sawmill_donations_total": {"description": f"Sawmill donations {_ISLAND_DONATION_SCOPE}", "unit": "gold"},
+    "luxury_mine_donations_total": {"description": f"Luxury mine donations {_ISLAND_DONATION_SCOPE}", "unit": "gold"},
+    "donations_total": {"description": f"All donations {_ISLAND_DONATION_SCOPE}", "unit": "gold"},
     "avg_donations_per_player": {"description": "Average donations per player", "unit": "gold"},
     "donating_player_share_pct": {"description": "Donating players / players", "unit": "percent"},
 }
@@ -353,10 +363,10 @@ DONATION_ANALYTICS_PLAYER_ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     "snapshot_date": {"description": "Date the snapshot was taken", "unit": "date"},
     "country_code": {"description": "Server country code", "unit": "iso2"},
     "server": {"description": "Game server number within the country; a country can run several servers over time, each its own world", "unit": "id"},
-    "donations_total": {"description": "All donations by this player on this island", "unit": "gold"},
-    "sawmill_donations_total": {"description": "Sawmill donations by this player on this island", "unit": "gold"},
-    "luxury_mine_donations_total": {"description": "Luxury mine donations by this player on this island", "unit": "gold"},
-    "wonder_donations_total": {"description": "Wonder donations by this player on this island", "unit": "gold"},
+    "donations_total": {"description": f"All donations {_PLAYER_ISLAND_DONATION_SCOPE}", "unit": "gold"},
+    "sawmill_donations_total": {"description": f"Sawmill donations {_PLAYER_ISLAND_DONATION_SCOPE}", "unit": "gold"},
+    "luxury_mine_donations_total": {"description": f"Luxury mine donations {_PLAYER_ISLAND_DONATION_SCOPE}", "unit": "gold"},
+    "wonder_donations_total": {"description": f"Wonder donations {_PLAYER_ISLAND_DONATION_SCOPE}", "unit": "gold"},
     "wonder_and_luxury_mine_donations_total": {"description": "Wonder plus luxury mine donations", "unit": "gold"},
     "wonder_wine_donations_allocated": {"description": "Wonder donations allocated to wine by equal split across luxury goods not produced on the island", "unit": "gold"},
     "wonder_marble_donations_allocated": {"description": "Wonder donations allocated to marble by equal split across luxury goods not produced on the island", "unit": "gold"},

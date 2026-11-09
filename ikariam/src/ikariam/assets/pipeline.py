@@ -296,9 +296,10 @@ def city_by_island_snapshot(
 @asset(group_name=TRANSFORM_GROUP)
 def donations_by_player_snapshot(
     context: AssetExecutionContext,
-    donation_enriched: pl.DataFrame,
+    filtered_donation: pl.DataFrame,
 ) -> pl.DataFrame:
-    df = donations_by_avatar(donation_enriched)
+    """Player totals over every island, including islands where the player has no city now."""
+    df = donations_by_avatar(filtered_donation)
     _add_df_metadata(context, df)
     return df
 

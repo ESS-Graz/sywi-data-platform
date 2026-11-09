@@ -13,6 +13,7 @@ import polars as pl
 
 from ..utils import safe_percent
 from .construction_events import CONSTRUCTION_SUM_COLUMNS
+from .donations import split_donation_types
 
 
 RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine")
@@ -60,15 +61,23 @@ def aggregate_by_island(city_player_island: pl.DataFrame) -> pl.DataFrame:
     ).agg(aggs)
 
 
-def donations_by_avatar(donation_enriched: pl.DataFrame) -> pl.DataFrame:
-    return donation_enriched.group_by(
+def donations_by_avatar(donation_raw: pl.DataFrame) -> pl.DataFrame:
+    """Player-snapshot donation totals over every island.
+
+    Reads the raw donation rows rather than ``donation_enriched``, so islands
+    where the player no longer has a city (mostly relocated cities, whose old
+    amount stays in the data) still count towards the player's total.
+    """
+    totals = split_donation_types(donation_raw).group_by(
         ["avatar_id", "snapshot_id", "snapshot_date", "country", "server"]
     ).agg(
-        pl.col("Don_Wonder_Ges").sum().alias("Don_Wonder_Ges"),
-        pl.col("Don_Saegewerk_Ges").sum().alias("Don_Saegewerk_Ges"),
-        pl.col("Don_Luxusminen_Ges").sum().alias("Don_Luxusminen_Ges"),
-        pl.col("Don_Ges").sum().alias("Don_Ges"),
-        pl.col("Don_Luxus_Ges").sum().alias("Don_Luxus_Ges"),
+        pl.col("Don_Wonder").sum().alias("Don_Wonder_Ges"),
+        pl.col("Don_Saegewerk").sum().alias("Don_Saegewerk_Ges"),
+        pl.col("Don_Luxusminen").sum().alias("Don_Luxusminen_Ges"),
+        pl.col("Don_Ges_raw").sum().alias("Don_Ges"),
+    )
+    return totals.with_columns(
+        (pl.col("Don_Wonder_Ges") + pl.col("Don_Luxusminen_Ges")).alias("Don_Luxus_Ges")
     )
 
 

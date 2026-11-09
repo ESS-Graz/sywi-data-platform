@@ -54,6 +54,27 @@ To support rich analytical workloads, we deliberately choose a denormalized desi
 > **Note on Data Duplication**:
 > Duplication in this dataset is **intentional** to make analysis easier. Users of the dataset should keep this in mind when querying: always aggregate player-island level metrics using `MAX` rather than `SUM` when rolling up to the player or server levels.
 
+## Donation Totals
+
+The raw donation data holds, for every player, island and donation type, the
+**running total** donated so far, not the donations of one week. The amounts
+never decrease from one snapshot to the next. Every `*_donations_total` column
+is therefore "donated up to this snapshot": use the latest snapshot for a
+lifetime total, and never sum a donation column across snapshots.
+
+The running total stays in the data after the player's city has left the island
+(mostly relocated cities). Which islands count depends on the table:
+
+- `player_snapshot` counts every island, including islands where the player no
+  longer has a city.
+- `city_snapshot`, `donation_analytics_player_island_snapshot` and
+  `island_snapshot` count only islands where the player has a city at that
+  snapshot, because there is no city row to attach the rest to.
+
+So a player's total in `player_snapshot` can be higher than the sum over their
+islands in the player-island tables. Across the current data the difference is
+5.70 of 219.5 billion gold (2.6%).
+
 ## Donation Analytics
 
 Donation ratios and island peer averages live in `donation_analytics_player_island_snapshot`.
