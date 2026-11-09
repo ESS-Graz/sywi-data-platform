@@ -22,11 +22,13 @@ RUN python -m venv "${VIRTUAL_ENV}"
 # SQLAlchemy 2.1 makes psycopg (v3) the default postgresql driver, but
 # dagster-postgres only ships psycopg2-binary, so the webserver and daemon
 # fail with "No module named 'psycopg'". Stay on 2.0 until that changes.
+# Keep the Dagster versions equal to the ones in uv.lock, ikariam/uv.lock and
+# hackernews/uv.lock, so the webserver and daemon match the code locations.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --python "${VIRTUAL_ENV}/bin/python" \
-    dagster \
-    dagster-webserver \
-    dagster-postgres \
+    dagster==1.13.29 \
+    dagster-webserver==1.13.29 \
+    dagster-postgres==0.29.29 \
     "sqlalchemy<2.1"
 
 # Create dagster home directory
