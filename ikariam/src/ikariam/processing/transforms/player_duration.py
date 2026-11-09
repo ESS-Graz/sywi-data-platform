@@ -156,6 +156,24 @@ def prepare_validated_avatars(avatar_raw: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def select_valid_players(avatar_raw: pl.DataFrame, server_starts: pl.DataFrame) -> pl.DataFrame:
+    """Return the (country, server, id) keys of players registered at or after their server's start.
+
+    Accounts registered before the start are admin/test accounts. Every server
+    in the data must have a start time, otherwise this fails.
+    """
+    avatars = prepare_validated_avatars(avatar_raw)
+    no_start = avatars.select("country", "server").unique().join(server_starts, on=["country", "server"], how="anti")
+    if no_start.height:
+        raise ValueError(f"No start time in server_starts for: {no_start.sort('country', 'server').to_dicts()}")
+    return (
+        avatars.join(server_starts, on=["country", "server"])
+        .filter(pl.col("_registration_time_int") >= pl.col("start_unix"))
+        .select(_PLAYER_KEYS)
+        .unique()
+    )
+
+
 def _current_research_evidence(city_raw: pl.DataFrame) -> pl.DataFrame:
     _require_columns(city_raw, {"country", "server", "owner_id", "snapshot_id"}, "city_raw")
 

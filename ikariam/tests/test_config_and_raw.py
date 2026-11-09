@@ -8,16 +8,16 @@ import pytest
 
 from ikariam.processing import config as config_module
 from ikariam.processing.config import Config, load_config
-from ikariam.processing.io_files import read_building_costs
+from ikariam.processing.io_files import read_building_costs, read_server_starts
 from ikariam.processing.io_raw import load_raw_table
 
 
 def _cfg(raw_data_dir: Path) -> Config:
     return Config(
-        min_registration_time=1366797600,
         wonder_split_factor=0.666667,
         raw_data_dir=raw_data_dir,
         building_costs_path=raw_data_dir / "building_costs.csv",
+        server_starts_path=raw_data_dir / "server_starts.csv",
         output_dir=raw_data_dir / "output",
         lancedb_path=raw_data_dir / "output" / "ikariam.lancedb",
     )
@@ -114,3 +114,18 @@ def test_building_costs_rejects_empty_cells(tmp_path: Path):
 
     with pytest.raises(ValueError, match=r"empty cells in: \['cost_quartz'\]"):
         read_building_costs(path)
+
+
+def test_server_starts_reads_utc_start_per_server(tmp_path: Path):
+    path = tmp_path / "server_starts.csv"
+    path.write_text("country;server;start_utc\nde;23;2013-04-24 10:00:00\n", encoding="utf-8")
+
+    assert read_server_starts(path).to_dicts() == [{"country": "DE", "server": 23, "start_unix": 1366797600}]
+
+
+def test_server_starts_rejects_duplicate_servers(tmp_path: Path):
+    path = tmp_path / "server_starts.csv"
+    path.write_text("country;server;start_utc\nDE;23;2013-04-24 10:00:00\nDE;23;2013-04-25 10:00:00\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="lists a server twice"):
+        read_server_starts(path)

@@ -16,6 +16,14 @@ Two event ledgers record construction history at a finer grain:
 - `building_construction_event` (grain: one row per building level ever constructed)
 - `building_demolition_event` (grain: one row per building level that stopped standing)
 
+## Player Filter
+
+The pipeline keeps only players registered at or after the start of their own server. Accounts
+registered earlier are admin or test accounts; this removes 122 of 205,316 accounts. The start times
+are in `data/raw/ikariam/server_starts.csv`, taken from the sheet `Servers` in
+[`docs/snapshots_verification.xlsx`](docs/snapshots_verification.xlsx). AR 11 is taken as 10:00 UTC
+(issue I08 in that workbook). The run fails if a server in the data has no start time.
+
 ## Output Location
 
 The tables are written to LanceDB. By default that is `ikariam/output/ikariam.lancedb`.

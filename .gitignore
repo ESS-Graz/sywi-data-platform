@@ -21,7 +21,7 @@ __pycache__/
 
 # Local data and bind-mounted raw inputs.
 # Listed as data/* rather than data/ so Git descends into the tree and the
-# small, hand-maintained lookup file below can be re-included. Git cannot
+# small, hand-maintained lookup files below can be re-included. Git cannot
 # re-include a file whose parent directory is excluded, hence one negation per
 # path level. Everything else under data/, including all raw snapshots, stays
 # ignored.
@@ -31,6 +31,7 @@ data/raw/*
 !data/raw/ikariam/
 data/raw/ikariam/*
 !data/raw/ikariam/building_costs.csv
+!data/raw/ikariam/server_starts.csv
 
 # Temp dir
 temp/

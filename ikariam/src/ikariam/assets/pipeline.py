@@ -4,7 +4,7 @@ import polars as pl
 from dagster import AssetExecutionContext, MaterializeResult, MetadataValue, asset
 
 from ikariam.processing.config import get_config
-from ikariam.processing.io_files import read_building_costs
+from ikariam.processing.io_files import read_building_costs, read_server_starts
 from ikariam.processing.io_lance import partition_raw_tables_by_country, write_lancedb
 from ikariam.processing.io_raw import load_raw_table
 from ikariam.processing.transforms.building_costs import add_building_base_costs
@@ -35,7 +35,7 @@ from ikariam.processing.transforms.higher_agg import (
 from ikariam.processing.transforms.islands import enrich_islands
 from ikariam.processing.transforms.player_duration import (
     enrich_avatars,
-    prepare_validated_avatars,
+    select_valid_players,
 )
 
 RAW_GROUP = "ikariam_raw"
@@ -88,16 +88,21 @@ def building_costs(context: AssetExecutionContext) -> pl.DataFrame:
     return df
 
 
+@asset(group_name=RAW_GROUP)
+def server_starts(context: AssetExecutionContext) -> pl.DataFrame:
+    df = read_server_starts(get_config().server_starts_path)
+    _add_df_metadata(context, df)
+    return df
+
+
 @asset(group_name=TRANSFORM_GROUP)
-def valid_players(context: AssetExecutionContext, raw_avatar: pl.DataFrame) -> pl.DataFrame:
-    """Keep players whose registration time meets the configured lower bound."""
-    cfg = get_config()
-    df = (
-        prepare_validated_avatars(raw_avatar)
-        .filter(pl.col("_registration_time_int") >= cfg.min_registration_time)
-        .select("country", "server", "id")
-        .unique()
-    )
+def valid_players(
+    context: AssetExecutionContext,
+    raw_avatar: pl.DataFrame,
+    server_starts: pl.DataFrame,
+) -> pl.DataFrame:
+    """Keep players registered at or after their server's documented start."""
+    df = select_valid_players(raw_avatar, server_starts)
     _add_df_metadata(context, df)
     return df
 
@@ -433,6 +438,7 @@ ALL_ASSETS = [
     raw_donation,
     raw_island,
     building_costs,
+    server_starts,
     valid_players,
     filtered_avatar,
     filtered_city,

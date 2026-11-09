@@ -102,10 +102,9 @@ files are not byte-reproducible).
 ## 7. What the raw data still contains (cleaning is the pipeline's job)
 
 - **Pre-launch admin accounts**: 4 or 5 distinct accounts per server registered before the world's
-  start (earliest 2008-07-18). The pipeline drops `registration_time < 1366797600` (2013-04-24
-  10:00 UTC) for every server. Per-server start times (confirmed by the first real registration,
-  14 seconds to 26 minutes after the start) are in the workbook sheet `Servers`; the
-  global cut-off misses exactly one AR account.
+  start (earliest 2008-07-18). Per-server start times (confirmed by the first real registration,
+  14 seconds to 26 minutes after the start) are in the workbook sheet `Servers`. The pipeline
+  removes these accounts; see "Player Filter" in the [README](../README.md).
 - `avatar.research_points` is always 0; `formOfGovernment` 8 and 9 never occur; `gender` is 0/1
   (undocumented). Building type `0` (or level 0) is an empty slot and type `31` is the Black Market
   (accepted in the pipeline's `docs/manual_review_handoff.md`).

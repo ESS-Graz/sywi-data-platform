@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import polars as pl
 import pytest
 
-from ikariam.processing.transforms.player_duration import enrich_avatars
+from ikariam.processing.transforms.player_duration import (
+    enrich_avatars,
+    select_valid_players,
+)
 
 
 REGISTRATION = datetime(2020, 1, 1, 12, 30, tzinfo=UTC)
@@ -310,7 +313,6 @@ def test_malformed_building_slot_value_is_reported() -> None:
             {
                 "country": ["DE"],
                 "server": [1],
-            "server": [1],
                 "owner_id": ["p1"],
                 "snapshot_id": ["s1"],
                 "p1t": ["not-a-building-type"],
@@ -324,3 +326,25 @@ def test_malformed_building_slot_value_is_reported() -> None:
 
     assert "non-integer city building slot value: rows=1" in str(exc_info.value)
     assert "p1" in str(exc_info.value)
+
+
+def _starts(rows: list[tuple[str, int, int]]) -> pl.DataFrame:
+    return pl.DataFrame(rows, schema={"country": pl.String, "server": pl.Int64, "start_unix": pl.Int64}, orient="row")
+
+
+def test_valid_players_use_each_servers_own_start() -> None:
+    # Same registration time; server 1 started at it, server 2 one second later.
+    avatars = pl.concat([
+        _avatar([("p1", "de1_a", 1), ("p1", "de1_b", 8)], server=1),
+        _avatar([("p1", "de2_a", 1)], server=2),
+    ])
+    starts = _starts([("DE", 1, REGISTRATION_UNIX), ("DE", 2, REGISTRATION_UNIX + 1)])
+
+    assert select_valid_players(avatars, starts).to_dicts() == [{"country": "DE", "server": 1, "id": "p1"}]
+
+
+def test_valid_players_fail_when_a_server_has_no_start() -> None:
+    avatars = _avatar([("p1", "de1_a", 1)], server=1)
+
+    with pytest.raises(ValueError, match="No start time in server_starts"):
+        select_valid_players(avatars, _starts([("DE", 2, 0)]))

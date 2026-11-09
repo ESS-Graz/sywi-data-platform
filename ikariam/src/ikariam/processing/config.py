@@ -7,10 +7,10 @@ from pathlib import Path
 
 @dataclass(frozen=True, slots=True)
 class Config:
-    min_registration_time: int
     wonder_split_factor: float
     raw_data_dir: Path
     building_costs_path: Path
+    server_starts_path: Path
     output_dir: Path
     # Local directory, or an object-store URI such as s3://ikariam/ikariam.lancedb
     lancedb_path: Path | str
@@ -48,12 +48,12 @@ def load_config() -> Config:
         resolved_lancedb_path = output_dir / "ikariam.lancedb"
 
     return Config(
-        # 2013-04-24 10:00 UTC, the day before the first snapshot (2013-04-25):
-        # keeps only players whose registration falls inside the observed window.
-        min_registration_time=1366797600,
         wonder_split_factor=0.666667,  # 2/3, rounded; see transforms/donations.py
         raw_data_dir=raw_data_dir,
         building_costs_path=raw_data_dir / "building_costs.csv",
+        # Documented start of each server's world; accounts registered earlier
+        # are admin/test accounts (docs/snapshots_verification.xlsx, sheet Servers).
+        server_starts_path=raw_data_dir / "server_starts.csv",
         output_dir=output_dir,
         lancedb_path=resolved_lancedb_path,
     )
