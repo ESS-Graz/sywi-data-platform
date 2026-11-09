@@ -100,15 +100,46 @@ demolition, so a later rebuild never changes an earlier snapshot's value.
 
 Levels already present the first time a building is seen cannot be dated. They
 are priced at that first observation's factor and reported separately via
-`opening_stock_base_cost_total`; `observed_construction_coverage` gives the
-datable share of each row (97.2% value-weighted across the current data).
+`opening_stock_base_cost_total`.
 
 Both measures aggregate by plain summation at every grain. Coverage is a ratio
 and is recomputed per row rather than summed.
 
+### Coverage: how far the historical prices can be trusted
+
+`observed_construction_coverage` is the share of a row's building value that
+could be dated to an interval between two snapshots:
+
+    coverage = 1 - opening_stock_base_cost_total / building_base_cost_total
+
+Value means undiscounted building cost, so expensive levels count for more than
+cheap ones. The lower the coverage, the more the historical measures rest on the
+first-observation assumption above.
+
+Vintage pricing needs several snapshots of a server, so coverage is only
+meaningful where those exist. Value-weighted over all rows of the current data:
+
+| Servers | Snapshots | Coverage |
+|---|---|---|
+| DE 23, EN 22, FR 21, GR 19, TR 25 | 36-37 | 97.2% |
+| AE 18, BR 27 | 6, the first about six months after the server's start | 36.6% |
+| AR 11, RU 17, US 19 and the ten comparison servers | 1 | 0% |
+
+With a single snapshot, no level can be dated. On those 13 servers the vintage
+pricing does not really work: every level is priced at the one observed factor,
+so `historical_building_cost_*` adds no information beyond
+`estimated_building_cost_*`. Do not read their 0% as a data error, and do not
+include them in a statement about overall coverage. Use the historical measures
+for analysis on the five long-running servers, and with caution on AE and BR.
+
+A row with no buildings has no value to date; its coverage reads 1.0 and says
+nothing, so exclude these rows (`building_base_cost_total = 0`) when averaging.
+
 ## Reconstructing Dropped Summary and Latest Tables
 
 To minimize storage and pipeline maintenance, we do not materialize the obsolete static "latest" or "summary" tables in LanceDB. Instead, they can be easily computed dynamically using standard SQL queries in DuckDB (or any SQL engine) from the primary tables.
+
+Player, city and island IDs are only unique within a server: the same ID can appear on several servers, so these queries always include `server` in their keys.
 
 ### 1. player_latest
 Get the latest snapshot row for each player.
@@ -116,7 +147,7 @@ Get the latest snapshot row for each player.
 SELECT * FROM (
     SELECT *,
            ROW_NUMBER() OVER (
-               PARTITION BY country_code, player_id
+               PARTITION BY country_code, server, player_id
                ORDER BY snapshot_date DESC, snapshot_id DESC
            ) as rn
     FROM player_snapshot
@@ -129,7 +160,7 @@ Get the latest snapshot row for each island.
 SELECT * FROM (
     SELECT *,
            ROW_NUMBER() OVER (
-               PARTITION BY country_code, island_id
+               PARTITION BY country_code, server, island_id
                ORDER BY snapshot_date DESC, snapshot_id DESC
            ) as rn
     FROM island_snapshot
@@ -137,12 +168,12 @@ SELECT * FROM (
 ```
 
 ### 3. city_latest (previously player_island_latest at city level)
-Get the latest snapshot row for each city.
+Get the latest snapshot row for each city. A city can change island between snapshots, so the island is not part of the key.
 ```sql
 SELECT * FROM (
     SELECT *,
            ROW_NUMBER() OVER (
-               PARTITION BY country_code, player_id, island_id, city_id
+               PARTITION BY country_code, server, city_id
                ORDER BY snapshot_date DESC, snapshot_id DESC
            ) as rn
     FROM city_snapshot
@@ -156,7 +187,7 @@ WITH latest_cities AS (
     SELECT * FROM (
         SELECT *,
                ROW_NUMBER() OVER (
-                   PARTITION BY country_code, city_id
+                   PARTITION BY country_code, server, city_id
                    ORDER BY snapshot_date DESC, snapshot_id DESC
                ) as rn
         FROM city_snapshot
@@ -164,6 +195,7 @@ WITH latest_cities AS (
 )
 SELECT 
     country_code,
+    server,
     player_id,
     island_id,
     SUM(population_total) AS population_total,
@@ -186,7 +218,7 @@ SELECT
     ANY_VALUE(sawmill_level) AS sawmill_level,
     ANY_VALUE(island_city_count) AS island_city_count
 FROM latest_cities
-GROUP BY country_code, player_id, island_id;
+GROUP BY country_code, server, player_id, island_id;
 ```
 
 ### 5. player_summary
@@ -194,6 +226,7 @@ Get the cross-snapshot historical summary per player.
 ```sql
 SELECT 
     country_code,
+    server,
     player_id,
     COUNT(DISTINCT snapshot_id) AS snapshots_observed_count,
     MIN(snapshot_date) AS first_snapshot_date,
@@ -201,7 +234,7 @@ SELECT
     MIN(registered_at_unix) AS registered_at_unix,
     DATEDIFF('day', MIN(snapshot_date), MAX(snapshot_date)) AS observation_span_days
 FROM player_snapshot
-GROUP BY country_code, player_id;
+GROUP BY country_code, server, player_id;
 ```
 
 ### 6. player_island_summary
@@ -209,6 +242,7 @@ Get the historical summary of a player's activity on an island. Since we track a
 ```sql
 SELECT 
     country_code,
+    server,
     player_id,
     island_id,
     COUNT(DISTINCT snapshot_id) AS snapshots_observed_count,
@@ -217,7 +251,7 @@ SELECT
     COUNT(DISTINCT city_id || '_' || snapshot_id) AS player_city_observation_count,
     MAX(donations_total) AS max_donations_total
 FROM city_snapshot
-GROUP BY country_code, player_id, island_id;
+GROUP BY country_code, server, player_id, island_id;
 ```
 
 ### 7. island_summary
@@ -225,12 +259,13 @@ Get the cross-snapshot historical summary per island.
 ```sql
 SELECT 
     country_code,
+    server,
     island_id,
     COUNT(DISTINCT snapshot_id) AS snapshots_observed_count,
     MIN(snapshot_date) AS first_snapshot_date,
     MAX(snapshot_date) AS last_snapshot_date
 FROM island_snapshot
-GROUP BY country_code, island_id;
+GROUP BY country_code, server, island_id;
 ```
 
 ## Raw data lineage
