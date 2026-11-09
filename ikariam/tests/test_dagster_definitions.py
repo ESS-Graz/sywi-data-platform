@@ -36,3 +36,11 @@ def test_no_asset_depends_on_a_later_group():
     ]
 
     assert backward == []
+
+
+def test_full_pipeline_job_runs_every_asset():
+    from ikariam.definitions import defs
+
+    job = defs.resolve_job_def("ikariam_full_pipeline")
+
+    assert job.asset_layer.selected_asset_keys == defs.resolve_asset_graph().get_all_asset_keys()

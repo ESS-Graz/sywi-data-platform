@@ -24,6 +24,10 @@ are in `data/raw/ikariam/server_starts.csv`, taken from the sheet `Servers` in
 [`docs/snapshots_verification.xlsx`](docs/snapshots_verification.xlsx). AR 11 is taken as 10:00 UTC
 (issue I08 in that workbook). The run fails if a server in the data has no start time.
 
+## Running the Pipeline
+
+The job `ikariam_full_pipeline` runs every asset in dependency order, ending with the LanceDB export. In the Dagster UI it is under **Jobs**. The export deletes and rewrites the database at the output location below.
+
 ## Output Location
 
 The tables are written to LanceDB. By default that is `ikariam/output/ikariam.lancedb`.
