@@ -157,12 +157,14 @@ def enrich_islands(island_raw: pl.DataFrame) -> pl.DataFrame:
 
     wonder_costs = _wonder_cost_table().rename({"cost": "cost_Nextlev_wonder"})
     df = df.join(wonder_costs, left_on="wonder_level", right_on="level", how="left")
+
     df = df.with_columns(
         pl.when((pl.col("wonder_level") == 0) & pl.col("cost_Nextlev_wonder").is_null())
         .then(pl.lit(WONDER_COSTS[0][1]))
         .otherwise(pl.col("cost_Nextlev_wonder"))
         .alias("cost_Nextlev_wonder")
     )
+
     resource_costs = _resource_cost_table().rename({"cost": "cost_Nextlev_resource"})
     df = df.join(resource_costs, left_on="resource_level", right_on="level", how="left")
 
@@ -171,6 +173,7 @@ def enrich_islands(island_raw: pl.DataFrame) -> pl.DataFrame:
 
     def remaining(cost: str, donated: str) -> pl.Expr:
         raw = pl.col(cost) - pl.col(donated)
+
         return (
             pl.when(pl.col(cost).is_null())
             .then(pl.lit(0.0))

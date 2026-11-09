@@ -6,7 +6,7 @@ import polars as pl
 import pytest
 
 from ikariam.processing.transforms.player_duration import (
-    enrich_avatars,
+    enrich_players,
     select_valid_players,
 )
 
@@ -51,6 +51,7 @@ def _complete_city_slots(frame: pl.DataFrame) -> pl.DataFrame:
         for suffix in ("t", "l")
         if f"p{position}{suffix}" not in frame.columns
     ]
+
     return frame.with_columns(missing)
 
 
@@ -65,9 +66,10 @@ def test_snapshot_age_boundaries_and_output_contract() -> None:
         ("p1", "s153", 153),
     ]
 
-    result = enrich_avatars(_avatar(observations), _empty_city())
+    result = enrich_players(_avatar(observations), _empty_city())
 
     assert result.get_column("account_age_days").to_list() == [0, 2, 3, 16, 17, 152, 153]
+
     assert result.get_column("estimated_research_cost_factor").to_list() == [
         1.0,
         1.0,
@@ -77,12 +79,15 @@ def test_snapshot_age_boundaries_and_output_contract() -> None:
         0.94,
         0.86,
     ]
+
     assert result.get_column("estimated_research_cost_factor_source").to_list() == [
         "age_heuristic"
     ] * len(observations)
+
     assert result.get_column("research_evidence_tier").to_list() == ["none"] * len(
         observations
     )
+
     assert result.schema["registered_at"] == pl.Datetime("us", "UTC")
     assert result.schema["account_age_days"] == pl.Int64
     assert result.schema["estimated_research_cost_factor"] == pl.Float64
@@ -101,6 +106,7 @@ def test_strongest_nonzero_building_evidence_is_used_per_player_snapshot() -> No
             ("strongest", "s1", 1),
         ]
     )
+
     city = _complete_city_slots(pl.DataFrame(
         {
             "country": ["DE"] * 7,
@@ -121,21 +127,24 @@ def test_strongest_nonzero_building_evidence_is_used_per_player_snapshot() -> No
     ))
 
     rows = {
-        row["id"]: row for row in enrich_avatars(avatar, city).sort("id").to_dicts()
+        row["id"]: row for row in enrich_players(avatar, city).sort("id").to_dicts()
     }
 
     assert (rows["pulley"]["estimated_research_cost_factor"], rows["pulley"]["research_evidence_tier"]) == (
         0.98,
         "pulley_or_later",
     )
+
     assert (
         rows["geometry"]["estimated_research_cost_factor"],
         rows["geometry"]["research_evidence_tier"],
     ) == (0.94, "geometry_or_later")
+
     assert (
         rows["spirit26"]["estimated_research_cost_factor"],
         rows["spirit26"]["research_evidence_tier"],
     ) == (0.86, "spirit_level_or_later")
+
     assert rows["spirit29"]["estimated_research_cost_factor"] == 0.86
     assert rows["zero_level"]["research_evidence_tier"] == "none"
     assert rows["strongest"]["research_evidence_tier"] == "geometry_or_later"
@@ -144,6 +153,7 @@ def test_strongest_nonzero_building_evidence_is_used_per_player_snapshot() -> No
 
 def test_building_source_requires_strictly_stronger_evidence() -> None:
     avatar = _avatar([("equal", "s3", 3), ("weaker", "s17", 17)])
+
     city = _complete_city_slots(pl.DataFrame(
         {
             "country": ["DE", "DE"],
@@ -155,13 +165,15 @@ def test_building_source_requires_strictly_stronger_evidence() -> None:
         }
     ))
 
-    result = enrich_avatars(avatar, city).sort("id")
+    result = enrich_players(avatar, city).sort("id")
 
     assert result.get_column("estimated_research_cost_factor").to_list() == [0.98, 0.94]
+
     assert result.get_column("estimated_research_cost_factor_source").to_list() == [
         "age_heuristic",
         "age_heuristic",
     ]
+
     assert result.get_column("research_evidence_tier").to_list() == [
         "pulley_or_later",
         "pulley_or_later",
@@ -172,8 +184,10 @@ def test_evidence_carries_forward_without_lookahead_or_cross_country_leakage() -
     de_avatar = _avatar(
         [("p1", "de_late", 10), ("p1", "de_early", 1), ("p1", "de_evidence", 5)]
     )
+
     en_avatar = _avatar([("p1", "en_late", 10)], country="EN")
     avatar = pl.concat([de_avatar, en_avatar])
+
     city = _complete_city_slots(pl.DataFrame(
         {
             "country": ["DE"],
@@ -187,7 +201,7 @@ def test_evidence_carries_forward_without_lookahead_or_cross_country_leakage() -
 
     rows = {
         (row["country"], row["snapshot_id"]): row
-        for row in enrich_avatars(avatar, city).to_dicts()
+        for row in enrich_players(avatar, city).to_dicts()
     }
 
     assert rows[("DE", "de_early")]["research_evidence_tier"] == "none"
@@ -201,6 +215,7 @@ def test_evidence_carries_forward_without_lookahead_or_cross_country_leakage() -
 def test_evidence_does_not_leak_between_servers_of_one_country() -> None:
     server1 = _avatar([("p1", "de1_early", 1), ("p1", "de1_late", 10)], server=1)
     server2 = _avatar([("p1", "de2_late", 10)], server=2)
+
     city = _complete_city_slots(pl.DataFrame(
         {
             "country": ["DE"],
@@ -214,7 +229,7 @@ def test_evidence_does_not_leak_between_servers_of_one_country() -> None:
 
     rows = {
         row["snapshot_id"]: row
-        for row in enrich_avatars(pl.concat([server1, server2]), city).to_dicts()
+        for row in enrich_players(pl.concat([server1, server2]), city).to_dicts()
     }
 
     assert rows["de1_late"]["research_evidence_tier"] == "geometry_or_later"
@@ -237,7 +252,7 @@ def test_registration_value_validation_reports_count_and_sample_keys(
     avatar = _avatar([("bad-player", "bad-snapshot", 1)], registration_time=registration_time)
 
     with pytest.raises(ValueError) as exc_info:
-        enrich_avatars(avatar, _empty_city())
+        enrich_players(avatar, _empty_city())
 
     assert message in str(exc_info.value)
     assert "bad-player" in str(exc_info.value)
@@ -253,7 +268,7 @@ def test_registration_must_be_invariant_per_country_player() -> None:
     )
 
     with pytest.raises(ValueError) as exc_info:
-        enrich_avatars(avatar, _empty_city())
+        enrich_players(avatar, _empty_city())
 
     assert "registration_time is not invariant per player: players=1" in str(exc_info.value)
     assert "p1" in str(exc_info.value)
@@ -264,7 +279,7 @@ def test_registration_cannot_be_after_snapshot_date() -> None:
     avatar = _avatar([("p1", "s1", 1)], registration_time=future_registration)
 
     with pytest.raises(ValueError) as exc_info:
-        enrich_avatars(avatar, _empty_city())
+        enrich_players(avatar, _empty_city())
 
     assert "registration_time is after snapshot_date: rows=1" in str(exc_info.value)
     assert "p1" in str(exc_info.value)
@@ -275,7 +290,7 @@ def test_duplicate_player_snapshot_reports_group_count_and_sample_key() -> None:
     avatar = pl.concat([row, row])
 
     with pytest.raises(ValueError) as exc_info:
-        enrich_avatars(avatar, _empty_city())
+        enrich_players(avatar, _empty_city())
 
     assert "duplicate player-snapshot keys: duplicate_groups=1" in str(exc_info.value)
     assert "p1" in str(exc_info.value)
@@ -288,7 +303,7 @@ def test_invalid_snapshot_date_is_reported() -> None:
     )
 
     with pytest.raises(ValueError, match="invalid snapshot_date: rows=1"):
-        enrich_avatars(avatar, _empty_city())
+        enrich_players(avatar, _empty_city())
 
 
 def test_nonempty_city_requires_the_complete_building_slot_schema() -> None:
@@ -304,7 +319,7 @@ def test_nonempty_city_requires_the_complete_building_slot_schema() -> None:
     )
 
     with pytest.raises(ValueError, match="city_raw missing required columns"):
-        enrich_avatars(_avatar([("p1", "s1", 1)]), city)
+        enrich_players(_avatar([("p1", "s1", 1)]), city)
 
 
 def test_malformed_building_slot_value_is_reported() -> None:
@@ -322,7 +337,7 @@ def test_malformed_building_slot_value_is_reported() -> None:
     )
 
     with pytest.raises(ValueError) as exc_info:
-        enrich_avatars(_avatar([("p1", "s1", 1)]), city)
+        enrich_players(_avatar([("p1", "s1", 1)]), city)
 
     assert "non-integer city building slot value: rows=1" in str(exc_info.value)
     assert "p1" in str(exc_info.value)
@@ -338,6 +353,7 @@ def test_valid_players_use_each_servers_own_start() -> None:
         _avatar([("p1", "de1_a", 1), ("p1", "de1_b", 8)], server=1),
         _avatar([("p1", "de2_a", 1)], server=2),
     ])
+
     starts = _starts([("DE", 1, REGISTRATION_UNIX), ("DE", 2, REGISTRATION_UNIX + 1)])
 
     assert select_valid_players(avatars, starts).to_dicts() == [{"country": "DE", "server": 1, "id": "p1"}]

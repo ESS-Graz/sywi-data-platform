@@ -19,6 +19,7 @@ def read_building_costs(path: Path) -> pl.DataFrame:
     cost_columns = [
         "cost_holz", "cost_quartz", "cost_kristall", "cost_wein", "cost_schwefel",
     ]
+
     missing = set(key_columns + cost_columns) - set(df.columns)
     if missing:
         raise ValueError(f"building_costs missing columns: {missing}")

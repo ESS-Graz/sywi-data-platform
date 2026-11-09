@@ -30,6 +30,7 @@ def _resolve_path(value: str | Path) -> Path:
     path = Path(value).expanduser()
     if path.is_absolute():
         return path.resolve()
+
     return (project_root() / path).resolve()
 
 
@@ -38,6 +39,7 @@ def load_config() -> Config:
     raw_data_dir = platform_root() / "data" / "raw" / "ikariam"
     output_dir = _resolve_path(os.environ.get("IKARIAM_OUTPUT_DIR", "output"))
     resolved_lancedb_path: Path | str
+
     if lancedb_path := os.environ.get("IKARIAM_LANCEDB_PATH"):
         # URIs (s3://...) go to LanceDB as-is; S3 endpoint and credentials come
         # from the AWS_* environment variables that LanceDB reads natively.

@@ -71,6 +71,7 @@ def build_player_snapshot_table(
         *RESOURCE_COLUMNS,
         pl.col("Geblev").alias("building_levels_total"),
     )
+
     base = base.join(city_agg, on=["player_id", "snapshot_id"], how="left")
 
     don_agg = donation3_av.select(
@@ -82,6 +83,7 @@ def build_player_snapshot_table(
         pl.col("Don_Ges").alias("donations_total"),
         pl.col("Don_Luxus_Ges").alias("wonder_and_luxury_mine_donations_total"),
     )
+
     base = base.join(don_agg, on=["player_id", "snapshot_id"], how="left")
 
     # Fill numeric nulls with 0 for weeks where this player had no cities
@@ -99,7 +101,9 @@ def build_player_snapshot_table(
             }
         ]
     )
+
     base = base.with_columns(observed_construction_coverage_expr())
+
     return base.sort(["player_id", "snapshot_date", "snapshot_id"])
 
 
@@ -147,6 +151,7 @@ def build_city_snapshot_table(
         pl.col("Don_Luxusminen_Ges").alias("luxury_mine_donations_total"),
         pl.col("Don_Ges").alias("donations_total"),
     )
+
     base = base.join(don, on=["player_id", "island_id", "snapshot_id"], how="left")
 
     isl = island_enriched.select(
@@ -169,6 +174,7 @@ def build_city_snapshot_table(
         pl.col("Sub_Noetig_nextlev_tradegood").alias("luxury_mine_next_level_remaining_cost"),
         pl.col("Sub_Noetig_nextlev_wonder").alias("wonder_next_level_remaining_cost"),
     )
+
     base = base.join(isl, on=["island_id", "snapshot_id"], how="left")
 
     base = base.with_columns(
@@ -181,7 +187,9 @@ def build_city_snapshot_table(
             and not c.startswith("estimated_")
         ]
     )
+
     base = base.with_columns(observed_construction_coverage_expr())
+
     return base.sort(["city_id", "snapshot_date", "snapshot_id"])
 
 
@@ -232,6 +240,7 @@ def build_island_snapshot_table(
         pl.col("Geblev").alias("building_levels_total"),
         pl.col("Avg_Buerger_per_player").alias("avg_population_per_player"),
     )
+
     base = base.join(city_agg, on=["island_id", "snapshot_id"], how="left")
 
     don_agg = donation4_i.select(
@@ -245,6 +254,7 @@ def build_island_snapshot_table(
         pl.col("Avg_Don_per_player").alias("avg_donations_per_player"),
         pl.col("donation_participation_rate").alias("donating_player_share_pct"),
     )
+
     base = base.join(don_agg, on=["island_id", "snapshot_id"], how="left")
 
     base = base.with_columns(
@@ -254,5 +264,7 @@ def build_island_snapshot_table(
             if dt.is_numeric()
         ]
     )
+
     base = base.with_columns(observed_construction_coverage_expr())
+
     return base.sort(["island_id", "snapshot_date", "snapshot_id"])

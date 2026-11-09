@@ -1,8 +1,9 @@
 """Column-level documentation for the canonical Lance output tables.
 
 Raw MariaDB table/column names stay upstream. The public tables documented
-here use readable lower_snake_case names. The raw database table is named
-`avatar`; public outputs call that same entity `player`.
+here use readable lower_snake_case names. The game calls a player an
+`avatar`. That name is kept only for raw data (the `raw_avatar` table and raw
+columns such as `avatar_id`); everything the pipeline produces says `player`.
 """
 
 from __future__ import annotations
@@ -27,12 +28,14 @@ def _building_cost_docs(scope: str) -> dict[str, dict[str, str]]:
         }
         for resource, unit in _RESOURCE_UNITS.items()
     }
+
     docs["building_base_cost_total"] = {
         "description": (
             f"Total undiscounted cumulative base-resource cost of buildings currently present {scope}, including the town hall"
         ),
         "unit": "sum",
     }
+
     docs.update(
         {
             f"estimated_building_cost_{resource}": {
@@ -44,12 +47,14 @@ def _building_cost_docs(scope: str) -> dict[str, dict[str, str]]:
             for resource, unit in _RESOURCE_UNITS.items()
         }
     )
+
     docs["estimated_building_cost_total"] = {
         "description": (
             f"Sum of the five counterfactual resource costs of the buildings currently present {scope}, including the town hall; not observed historical expenditure"
         ),
         "unit": "sum",
     }
+
     return docs
 
 
@@ -65,12 +70,14 @@ def _construction_docs(scope: str) -> dict[str, dict[str, str]]:
         }
         for resource, unit in _RESOURCE_UNITS.items()
     }
+
     docs["historical_building_cost_total"] = {
         "description": (
             f"Total estimated resources actually paid for the buildings standing {scope}, each level priced at its own vintage"
         ),
         "unit": "sum",
     }
+
     docs.update(
         {
             f"lifetime_construction_spend_{resource}": {
@@ -82,24 +89,28 @@ def _construction_docs(scope: str) -> dict[str, dict[str, str]]:
             for resource, unit in _RESOURCE_UNITS.items()
         }
     )
+
     docs["lifetime_construction_spend_total"] = {
         "description": (
             f"Total estimated resources paid for every building level ever constructed {scope}, including levels later demolished; the gap to historical_building_cost_total is what demolition wrote off"
         ),
         "unit": "sum",
     }
+
     docs["opening_stock_base_cost_total"] = {
         "description": (
             "Undiscounted base cost of the standing levels that were already present the first time their building was observed. Their build interval is unknown, so they are priced at that first observation's factor rather than a bracketed midpoint"
         ),
         "unit": "sum",
     }
+
     docs["observed_construction_coverage"] = {
         "description": (
             "Share of this row's standing building value that could be dated to an observed interval: 1 minus opening_stock_base_cost_total divided by building_base_cost_total. Lower values rest more on the opening-stock assumption"
         ),
         "unit": "ratio",
     }
+
     return docs
 
 
@@ -122,6 +133,7 @@ def _reduction_building_docs() -> dict[str, dict[str, str]]:
         }
         for resource, building in _REDUCTION_BUILDING_NAMES.items()
     }
+
     docs.update(
         {
             f"estimated_{resource}_cost_factor": {
@@ -133,6 +145,7 @@ def _reduction_building_docs() -> dict[str, dict[str, str]]:
             for resource, building in _REDUCTION_BUILDING_NAMES.items()
         }
     )
+
     return docs
 
 
@@ -144,10 +157,12 @@ def _stored_resource_docs(scope: str) -> dict[str, dict[str, str]]:
         }
         for resource, unit in _RESOURCE_UNITS.items()
     }
+
     docs["resources_stored_total"] = {
         "description": f"Total currently stored resources {scope}",
         "unit": "sum",
     }
+
     return docs
 
 
@@ -161,12 +176,14 @@ def _estimated_resource_value_docs(scope: str) -> dict[str, dict[str, str]]:
         }
         for resource, unit in _RESOURCE_UNITS.items()
     }
+
     docs["estimated_resource_value_total"] = {
         "description": (
             f"Total estimated building cost plus currently stored resources {scope}"
         ),
         "unit": "sum",
     }
+
     return docs
 
 

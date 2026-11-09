@@ -12,13 +12,16 @@ from ikariam.processing.transforms.building_costs import (
 
 def _city(**positions: list[int | None]) -> pl.DataFrame:
     row_count = len(next(iter(positions.values()), [0]))
+
     data: dict[str, list[int | None]] = {
         "id": list(range(1, row_count + 1)),
         "level": positions.get("level", [0] * row_count),
     }
+
     for position in range(1, 18):
         data[f"p{position}t"] = positions.get(f"p{position}t", [0] * row_count)
         data[f"p{position}l"] = positions.get(f"p{position}l", [0] * row_count)
+
     return pl.DataFrame(data)
 
 
@@ -28,18 +31,21 @@ def _costs() -> pl.DataFrame:
         for building_type in range(23, 28)
         for level in range(1, 33)
     ]
+
     # Town hall (type 1): 1000 wood and 500 marble per level, so a level-N town
     # hall is easy to recognise in an assertion.
     town_hall_rows = [
         (1, level, 1000.0 * level, 0.0, 500.0 * level, 0.0, 0.0)
         for level in range(1, 49)
     ]
+
     rows = [
         (3, 2, 100.0, 20.0, 30.0, 40.0, 50.0),
         (9, 4, 10.0, 2.0, 3.0, 4.0, 5.0),
         *reducer_rows,
         *town_hall_rows,
     ]
+
     return pl.DataFrame(
         rows,
         schema=[
@@ -144,6 +150,7 @@ def test_reducer_levels_are_extracted_per_resource_from_any_position() -> None:
     assert _reducer_levels(result) == [
         {"wood": 20, "marble": 10, "crystal": 0, "wine": 0, "sulfur": 32}
     ]
+
     assert all(result.schema[column] == pl.Int64 for column in REDUCTION_LEVEL_COLUMNS.values())
 
 

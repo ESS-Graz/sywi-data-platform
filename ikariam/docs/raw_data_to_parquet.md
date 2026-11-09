@@ -93,7 +93,7 @@ duckdb < raw_export.sql    # MySQL -> hive-partitioned zstd parquet, then the ch
 At the end of `raw_export.sql` (UTC dates): **abort** if any player registered after the snapshot's
 date; list snapshots whose last registration is more than 3 days before it (none expected).
 Tested: both pass on the current tree; on the old dates the first aborts with exit code 1 and names
-the offending snapshots. The pipeline repeats the first check in `prepare_validated_avatars`
+the offending snapshots. The pipeline repeats the first check in `prepare_validated_players`
 (runs on all rows before any filter); it passes for all 790,268 players in 209 snapshots. A re-run
 should reproduce row counts per table and, with `EXCEPT ALL` in both directions, all values.
 `parquet_raw_checksums.sha256` in the archive proves only the integrity of that copy (parquet

@@ -32,6 +32,7 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
             "Don_Luxus_Schwefel": [0.0, 0.0],
         }
     )
+
     city_player_island = pl.DataFrame(
         {
             "owner_id": ["p1", "p2"],
@@ -85,6 +86,7 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
             "opening_stock_base_cost_total": [18.0, 0.0],
         }
     )
+
     player_enriched = pl.DataFrame(
         {
             "id": ["p1", "p2"],
@@ -104,6 +106,7 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
         city_player_island,
         player_enriched,
     )
+
     row = result.filter(pl.col("player_id") == "p1").row(0, named=True)
 
     assert row["country_code"] == "DE"
@@ -131,9 +134,11 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
     assert row["estimated_research_cost_factor"] == 0.98
     assert row["estimated_research_cost_factor_source"] == "age_heuristic"
     assert row["research_evidence_tier"] == "none"
+
     assert row["estimated_wood_donation_resource_share_pct"] == pytest.approx(
         70.0 / 170.0 * 100.0
     )
+
     assert row["estimated_donations_resource_share_pct"] == pytest.approx(
         100.0 / 340.0 * 100.0
     )

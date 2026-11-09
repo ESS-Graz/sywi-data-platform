@@ -56,9 +56,11 @@ def extract_tech_tags(title: str) -> list[str]:
     """Extract tech-related tags from a title."""
     title_lower = title.lower()
     found_tags = []
+
     for keyword in TECH_KEYWORDS:
         if keyword in title_lower:
             found_tags.append(keyword)
+
     return found_tags
 
 

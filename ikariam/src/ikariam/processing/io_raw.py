@@ -30,6 +30,7 @@ def _scan_file(path: Path) -> pl.LazyFrame:
 def load_raw_table(cfg: Config, table: str) -> pl.DataFrame:
     if table not in RAW_TABLES:
         raise ValueError(f"Unsupported raw table: {table}")
+
     files = sorted(cfg.raw_data_dir.glob(f"country=*/server=*/snapshot_date=*/{table}_*.parquet"))
     if not files:
         layout = f"{cfg.raw_data_dir}/country=<xx>/server=<nn>/snapshot_date=<date>/{table}_*.parquet"
@@ -38,6 +39,7 @@ def load_raw_table(cfg: Config, table: str) -> pl.DataFrame:
     # Every file must have the same columns and types; concat fails loudly
     # rather than padding gaps with nulls.
     raw = pl.concat([_scan_file(f) for f in files], how="vertical")
+
     return raw.select(
         pl.all().exclude(*HIVE_SCHEMA),
         pl.format(

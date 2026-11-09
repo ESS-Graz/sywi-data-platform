@@ -61,9 +61,11 @@ def _city(
         "tradegood4": 4,
         "level": town_hall_level,
     }
+
     for position in range(1, 18):
         row[f"p{position}t"] = 3 if position == 1 else 0
         row[f"p{position}l"] = slot_level if position == 1 else 0
+
     return row
 
 
@@ -102,6 +104,7 @@ def costs() -> pl.DataFrame:
 @pytest.fixture
 def players() -> pl.DataFrame:
     snapshot_ids = ["de_0101_20", "de_0801_20", "en_0101_20", "en_0801_20"]
+
     return pl.DataFrame(
         {
             "country": ["DE", "DE", "EN", "EN"],
@@ -186,6 +189,7 @@ def test_construction_measures_do_not_accumulate_across_countries(
     panel = build_slot_panel(enriched)
     events = build_construction_events(panel, enriched, costs)
     demolitions = build_demolition_events(panel, events)
+
     result = attach_city_construction(
         enriched, summarize_city_construction(panel, events, demolitions)
     )
@@ -208,6 +212,7 @@ def test_raw_tables_partition_into_one_table_per_country(cities: pl.DataFrame) -
     partitions = partition_raw_tables_by_country({"raw_city": cities})
 
     assert sorted(partitions) == ["raw_city_de", "raw_city_en"]
+
     for name, country in (("raw_city_de", "DE"), ("raw_city_en", "EN")):
         assert partitions[name].get_column("country").unique().to_list() == [country]
         assert partitions[name].height == 2
@@ -223,6 +228,7 @@ def test_servers_of_one_country_do_not_merge(costs: pl.DataFrame) -> None:
             _city("DE", "de2_0801_20", date(2020, 1, 8), 2, 1, server=2),
         ]
     )
+
     players = pl.DataFrame(
         {
             "country": ["DE"] * 4,
@@ -236,6 +242,7 @@ def test_servers_of_one_country_do_not_merge(costs: pl.DataFrame) -> None:
             "research_evidence_tier": ["geometry_or_later"] * 4,
         }
     )
+
     enriched = compute_city_metrics(add_building_base_costs(cities, costs), players)
     assert enriched.height == 4
 

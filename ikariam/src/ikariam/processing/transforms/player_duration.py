@@ -39,6 +39,7 @@ def _sample_keys(frame: pl.DataFrame, keys: list[str]) -> list[dict[str, object]
     present = [key for key in keys if key in frame.columns]
     if not present:
         return []
+
     return frame.select(present).unique(maintain_order=True).head(5).to_dicts()
 
 
@@ -60,12 +61,12 @@ def _require_columns(frame: pl.DataFrame, required: set[str], frame_name: str) -
         raise ValueError(f"{frame_name} missing required columns: {missing}")
 
 
-def prepare_validated_avatars(avatar_raw: pl.DataFrame) -> pl.DataFrame:
+def prepare_validated_players(avatar_raw: pl.DataFrame) -> pl.DataFrame:
     """Validate registration/snapshot invariants and derive UTC age fields.
 
     The pipeline calls this before cohort filtering so malformed rows cannot
     disappear merely because their registration value fails the filter cast.
-    ``enrich_avatars`` calls it again at its public transform boundary, keeping
+    ``enrich_players`` calls it again at its public transform boundary, keeping
     the transform safe when it is used independently of Dagster.
     """
     _require_columns(
@@ -114,6 +115,7 @@ def prepare_validated_avatars(avatar_raw: pl.DataFrame) -> pl.DataFrame:
         .cast(pl.Int64, strict=False)
         .alias("_registration_time_int")
     )
+
     implausible = prepared.filter(
         pl.col("_registration_time_int").is_null()
         | (pl.col("_registration_time_int") < _MIN_PLAUSIBLE_REGISTRATION_UNIX)
@@ -162,12 +164,13 @@ def select_valid_players(avatar_raw: pl.DataFrame, server_starts: pl.DataFrame) 
     Accounts registered before the start are admin/test accounts. Every server
     in the data must have a start time, otherwise this fails.
     """
-    avatars = prepare_validated_avatars(avatar_raw)
-    no_start = avatars.select("country", "server").unique().join(server_starts, on=["country", "server"], how="anti")
+    players = prepare_validated_players(avatar_raw)
+    no_start = players.select("country", "server").unique().join(server_starts, on=["country", "server"], how="anti")
     if no_start.height:
         raise ValueError(f"No start time in server_starts for: {no_start.sort('country', 'server').to_dicts()}")
+
     return (
-        avatars.join(server_starts, on=["country", "server"])
+        players.join(server_starts, on=["country", "server"])
         .filter(pl.col("_registration_time_int") >= pl.col("start_unix"))
         .select(_PLAYER_KEYS)
         .unique()
@@ -182,6 +185,7 @@ def _current_research_evidence(city_raw: pl.DataFrame) -> pl.DataFrame:
         for position in range(1, 18)
         for suffix in ("t", "l")
     ]
+
     if city_raw.height:
         _require_columns(city_raw, set(slot_columns), "city_raw")
 
@@ -223,6 +227,7 @@ def _current_research_evidence(city_raw: pl.DataFrame) -> pl.DataFrame:
     )
 
     observations: list[pl.DataFrame] = []
+
     for position in range(1, 18):
         type_column = f"p{position}t"
         level_column = f"p{position}l"
@@ -292,7 +297,7 @@ def _age_factor() -> pl.Expr:
     )
 
 
-def enrich_avatars(avatar_raw: pl.DataFrame, city_raw: pl.DataFrame) -> pl.DataFrame:
+def enrich_players(avatar_raw: pl.DataFrame, city_raw: pl.DataFrame) -> pl.DataFrame:
     """Add validated snapshot age and cumulative research-building evidence.
 
     Evidence is aggregated across all current cities for a player-snapshot and
@@ -300,12 +305,13 @@ def enrich_avatars(avatar_raw: pl.DataFrame, city_raw: pl.DataFrame) -> pl.DataF
     final factor is the stronger (numerically smaller) of age and evidence;
     evidence is the source only when it strictly improves on the age heuristic.
     """
-    prepared = prepare_validated_avatars(avatar_raw).with_row_index("_row_order")
+    prepared = prepare_validated_players(avatar_raw).with_row_index("_row_order")
     current_evidence = _current_research_evidence(city_raw)
 
     result = prepared.join(current_evidence, on=_SNAPSHOT_KEYS, how="left").with_columns(
         pl.col("_current_evidence_rank").fill_null(0).cast(pl.Int8)
     )
+
     result = result.sort([*_PLAYER_KEYS, "_snapshot_date", "snapshot_id"]).with_columns(
         pl.col("_current_evidence_rank")
         .cum_max()
@@ -343,4 +349,5 @@ def enrich_avatars(avatar_raw: pl.DataFrame, city_raw: pl.DataFrame) -> pl.DataF
     )
 
     internal_columns = [column for column in result.columns if column in _INTERNAL_COLUMNS]
+
     return result.sort("_row_order").drop(internal_columns)

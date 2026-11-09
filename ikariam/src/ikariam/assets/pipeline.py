@@ -27,14 +27,14 @@ from ikariam.processing.transforms.final_datasets import (
     build_player_snapshot_table,
 )
 from ikariam.processing.transforms.higher_agg import (
-    aggregate_by_avatar,
     aggregate_by_island,
-    donations_by_avatar,
+    aggregate_by_player,
     donations_by_island,
+    donations_by_player,
 )
 from ikariam.processing.transforms.islands import enrich_islands
 from ikariam.processing.transforms.player_duration import (
-    enrich_avatars,
+    enrich_players,
     select_valid_players,
 )
 
@@ -99,24 +99,25 @@ def server_starts(context: AssetExecutionContext) -> pl.DataFrame:
 
 
 @asset(group_name=TRANSFORM_GROUP)
-def valid_players(
+def valid_player_keys(
     context: AssetExecutionContext,
     raw_avatar: pl.DataFrame,
     server_starts: pl.DataFrame,
 ) -> pl.DataFrame:
-    """Keep players registered at or after their server's documented start."""
+    """(country, server, id) of players registered at or after their server's documented start."""
     df = select_valid_players(raw_avatar, server_starts)
     _add_df_metadata(context, df)
     return df
 
 
 @asset(group_name=TRANSFORM_GROUP)
-def filtered_avatar(
+def filtered_player(
     context: AssetExecutionContext,
     raw_avatar: pl.DataFrame,
-    valid_players: pl.DataFrame,
+    valid_player_keys: pl.DataFrame,
 ) -> pl.DataFrame:
-    df = raw_avatar.join(valid_players, on=["country", "server", "id"], how="semi")
+    """Keep the snapshots of valid players."""
+    df = raw_avatar.join(valid_player_keys, on=["country", "server", "id"], how="semi")
     _add_df_metadata(context, df)
     return df
 
@@ -125,11 +126,13 @@ def filtered_avatar(
 def filtered_city(
     context: AssetExecutionContext,
     raw_city: pl.DataFrame,
-    valid_players: pl.DataFrame,
+    valid_player_keys: pl.DataFrame,
 ) -> pl.DataFrame:
-    keys = valid_players.rename({"id": "owner_id"})
+    """Keep city snapshots owned by valid players."""
+    keys = valid_player_keys.rename({"id": "owner_id"})
     df = raw_city.join(keys, on=["country", "server", "owner_id"], how="semi")
     _add_df_metadata(context, df)
+
     return df
 
 
@@ -137,11 +140,13 @@ def filtered_city(
 def filtered_donation(
     context: AssetExecutionContext,
     raw_donation: pl.DataFrame,
-    valid_players: pl.DataFrame,
+    valid_player_keys: pl.DataFrame,
 ) -> pl.DataFrame:
-    keys = valid_players.rename({"id": "avatar_id"})
+    """Keep donations made by valid players."""
+    keys = valid_player_keys.rename({"id": "avatar_id"})
     df = raw_donation.join(keys, on=["country", "server", "avatar_id"], how="semi")
     _add_df_metadata(context, df)
+
     return df
 
 
@@ -159,7 +164,7 @@ def city_with_costs(
 @asset(group_name=TRANSFORM_GROUP)
 def player_enriched(
     context: AssetExecutionContext,
-    filtered_avatar: pl.DataFrame,
+    filtered_player: pl.DataFrame,
     filtered_city: pl.DataFrame,
 ) -> pl.DataFrame:
     """Add snapshot-relative account age and inferred research-cost context.
@@ -169,7 +174,7 @@ def player_enriched(
     player-snapshot factor is used consistently by every downstream city and
     donation calculation.
     """
-    df = enrich_avatars(filtered_avatar, filtered_city)
+    df = enrich_players(filtered_player, filtered_city)
     _add_df_metadata(context, df)
     return df
 
@@ -199,6 +204,7 @@ def building_construction_event(
     df = build_construction_events(
         build_slot_panel(city_enriched), city_enriched, building_costs
     )
+
     _add_df_metadata(context, df)
     return df
 
@@ -217,6 +223,7 @@ def building_demolition_event(
     df = build_demolition_events(
         build_slot_panel(city_enriched), building_construction_event
     )
+
     _add_df_metadata(context, df)
     return df
 
@@ -234,6 +241,7 @@ def city_construction(
         building_construction_event,
         building_demolition_event,
     )
+
     _add_df_metadata(context, df)
     return df
 
@@ -247,6 +255,7 @@ def city_player_island(
     df = aggregate_to_player_island(
         attach_city_construction(city_enriched, city_construction)
     )
+
     _add_df_metadata(context, df)
     return df
 
@@ -278,7 +287,7 @@ def city_by_player_snapshot(
     context: AssetExecutionContext,
     city_player_island: pl.DataFrame,
 ) -> pl.DataFrame:
-    df = aggregate_by_avatar(city_player_island)
+    df = aggregate_by_player(city_player_island)
     _add_df_metadata(context, df)
     return df
 
@@ -299,7 +308,7 @@ def donations_by_player_snapshot(
     filtered_donation: pl.DataFrame,
 ) -> pl.DataFrame:
     """Player totals over every island, including islands where the player has no city now."""
-    df = donations_by_avatar(filtered_donation)
+    df = donations_by_player(filtered_donation)
     _add_df_metadata(context, df)
     return df
 
@@ -326,6 +335,7 @@ def donation_analytics_player_island_snapshot(
         city_player_island,
         player_enriched,
     )
+
     _add_df_metadata(context, df)
     return df
 
@@ -342,6 +352,7 @@ def player_snapshot(
         city_by_player_snapshot,
         donations_by_player_snapshot,
     )
+
     _add_df_metadata(context, df)
     return df
 
@@ -368,6 +379,7 @@ def city_snapshot(
         donation_enriched,
         island_enriched,
     )
+
     _add_df_metadata(context, df)
     return df
 
@@ -384,6 +396,7 @@ def island_snapshot(
         city_by_island_snapshot,
         donations_by_island_snapshot,
     )
+
     _add_df_metadata(context, df)
     return df
 
@@ -414,6 +427,7 @@ def ikariam_lancedb(
         "building_construction_event": building_construction_event,
         "building_demolition_event": building_demolition_event,
     }
+
     raw_tables = partition_raw_tables_by_country(
         {
             "raw_avatar": raw_avatar,
@@ -422,11 +436,14 @@ def ikariam_lancedb(
             "raw_island": raw_island,
         }
     )
+
     tables = {
         **public_tables,
         **raw_tables,
     }
+
     db_path = write_lancedb(tables, get_config().lancedb_path)
+
     return MaterializeResult(
         metadata={
             "lancedb_path": MetadataValue.text(str(db_path)),
@@ -443,8 +460,8 @@ ALL_ASSETS = [
     raw_island,
     building_costs,
     server_starts,
-    valid_players,
-    filtered_avatar,
+    valid_player_keys,
+    filtered_player,
     filtered_city,
     filtered_donation,
     city_with_costs,

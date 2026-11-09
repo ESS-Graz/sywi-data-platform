@@ -105,6 +105,7 @@ def build_level_cost_deltas(building_costs: pl.DataFrame) -> pl.DataFrame:
         pl.col("building_level").max().alias("max_level"),
         pl.len().alias("rows"),
     )
+
     broken = shape.filter(
         (pl.col("min_level") != 1) | (pl.col("rows") != pl.col("max_level"))
     )
@@ -149,6 +150,7 @@ def build_slot_panel(city_enriched: pl.DataFrame) -> pl.DataFrame:
             pl.col(TOWN_HALL_LEVEL_COLUMN).cast(pl.Int64).alias("_level"),
         )
     ]
+
     frames.extend(
         city_enriched.select(
             pl.col("country").alias("country_code"),
@@ -162,7 +164,9 @@ def build_slot_panel(city_enriched: pl.DataFrame) -> pl.DataFrame:
         )
         for position in range(1, POSITION_COUNT + 1)
     )
+
     occupied = (pl.col("_type") > 0) & (pl.col("_level") > 0)
+
     return (
         pl.concat(frames)
         .with_columns(
@@ -214,6 +218,7 @@ def build_construction_events(
         "snapshot_date",
         *(f"estimated_{resource}_cost_factor" for resource in RESOURCE_NAMES),
     )
+
     start_factors = factors.rename(
         {
             "snapshot_date": "_prev_date",
@@ -223,7 +228,9 @@ def build_construction_events(
             },
         }
     )
+
     same_building = pl.col("_prev_type") == pl.col("building_type")
+
     # Levels at or below this were already paid for before this observation.
     already_built = (
         pl.when(same_building)
@@ -255,6 +262,7 @@ def build_construction_events(
             how="left",
         )
     )
+
     unpriced = events.filter(pl.col("level_cost_wood").is_null())
     if not unpriced.is_empty():
         sample = unpriced.select("building_type", "building_level").unique().head(5)
@@ -271,6 +279,7 @@ def build_construction_events(
             for resource in RESOURCE_NAMES
         )
     )
+
     return events.select(
         *_LEVEL_KEYS,
         pl.col("snapshot_id").alias("built_by_snapshot_id"),
@@ -297,6 +306,7 @@ def build_demolition_events(
     the standing total loses exactly what it previously gained.
     """
     same_building = pl.col("_prev_type") == pl.col("building_type")
+
     # Levels at or below this survived the transition.
     kept = (
         pl.when(same_building)
@@ -347,6 +357,7 @@ def build_demolition_events(
         raise ValueError(
             f"Demolished levels without a matching prior construction event: removals={removals.height}, priced={priced.height}"
         )
+
     return priced.sort(*_LEVEL_KEYS, "removed_at_snapshot_date")
 
 
@@ -383,6 +394,7 @@ def summarize_city_construction(
 
     built = _flows(construction_events, "built_by_snapshot_date", "built_")
     removed = _flows(demolition_events, "removed_at_snapshot_date", "removed_")
+
     flow_columns = [
         *(f"built_{column}" for column in paid),
         "built_base_total",
@@ -497,6 +509,7 @@ def attach_city_construction(
         "snapshot_id",
         *CONSTRUCTION_SUM_COLUMNS,
     )
+
     return city_enriched.join(
         measures, on=["country", "server", "id", "snapshot_id"], how="left"
     ).with_columns(

@@ -23,10 +23,12 @@ def test_partition_raw_tables_by_country_splits_rows_deterministically():
     tables = partition_raw_tables_by_country({"raw_avatar": raw_avatar})
 
     assert list(tables) == ["raw_avatar_de", "raw_avatar_en"]
+
     assert tables["raw_avatar_de"].select("country", "id").to_dicts() == [
         {"country": "DE", "id": "de-player-1"},
         {"country": "DE", "id": "de-player-2"},
     ]
+
     assert tables["raw_avatar_en"].select("country", "id").to_dicts() == [
         {"country": "EN", "id": "en-player"},
     ]
@@ -58,10 +60,12 @@ def test_construction_ledgers_carry_their_documentation(
 
 def test_write_lancedb_replaces_previous_tables(tmp_path) -> None:
     db_path = tmp_path / "out" / "ikariam.lancedb"
+
     write_lancedb(
         {"raw_avatar_de": pl.DataFrame({"id": ["a"]}), "stale": pl.DataFrame({"id": ["x"]})},
         db_path,
     )
+
     write_lancedb({"raw_avatar_de": pl.DataFrame({"id": ["b", "c"]})}, db_path)
 
     db = lancedb.connect(db_path)

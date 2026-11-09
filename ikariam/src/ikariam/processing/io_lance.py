@@ -23,6 +23,7 @@ def _metadata_table_name(table_name: str) -> str:
         base, _, suffix = table_name.rpartition("_")
         if base and len(suffix) == 2:
             return base
+
     return table_name
 
 
@@ -48,6 +49,7 @@ def _attach_metadata(df: pl.DataFrame, table_name: str) -> pa.Table:
     metadata_table_name = _metadata_table_name(table_name)
     col_docs = TABLE_DOCS.get(metadata_table_name, {})
     new_fields = []
+
     for field in arrow.schema:
         doc = col_docs.get(field.name, {})
         meta = {k.encode(): str(v).encode() for k, v in doc.items()}
@@ -57,7 +59,9 @@ def _attach_metadata(df: pl.DataFrame, table_name: str) -> pa.Table:
         b"description": TABLE_DESCRIPTIONS.get(metadata_table_name, "").encode(),
         **_raw_partition_metadata(table_name),
     }
+
     new_schema = pa.schema(new_fields, metadata=schema_meta)
+
     return arrow.replace_schema_metadata(schema_meta).cast(new_schema)
 
 
@@ -73,6 +77,7 @@ def partition_raw_tables_by_country(raw_tables: dict[str, pl.DataFrame]) -> dict
     `raw_avatar_de`, `raw_city_de`, etc.
     """
     partitioned: dict[str, pl.DataFrame] = {}
+
     for name, df in raw_tables.items():
         country_column = "country" if "country" in df.columns else "country_code"
         if country_column not in df.columns:
@@ -100,6 +105,7 @@ def write_lancedb(
     """
     if isinstance(db_path, Path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
+
     db = lancedb.connect(db_path)
     db.drop_all_tables()
 

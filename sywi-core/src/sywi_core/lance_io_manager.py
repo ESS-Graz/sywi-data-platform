@@ -40,11 +40,14 @@ def lance_config_from_env() -> dict:
             "aws_region": os.environ.get("AWS_REGION", "us-east-1"),
             "aws_virtual_hosted_style_request": "false",
         }
+
         endpoint = os.environ.get("AWS_ENDPOINT_URL") or os.environ.get("AWS_ENDPOINT")
         if endpoint:
             options["aws_endpoint"] = endpoint
+
         if os.environ.get("AWS_ALLOW_HTTP", "").lower() == "true":
             options["aws_allow_http"] = "true"
+
         config["storage_options"] = options
 
     return config
@@ -81,6 +84,7 @@ class LanceIOManager(IOManager):
         key = context.upstream_output.asset_key if context.upstream_output else context.asset_key
         table_name = key.path[-1]
         context.log.info(f"[LanceIOManager] Reading table {table_name} from {self._uri}")
+
         return self._connect().open_table(table_name).to_pandas()
 
 

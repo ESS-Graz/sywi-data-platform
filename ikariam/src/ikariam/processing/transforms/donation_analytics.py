@@ -82,8 +82,10 @@ def build_donation_analytics_player_island_snapshot(
         pl.col("priests").alias("priests_total"),
         *RESOURCE_COLUMNS,
     )
+
     player_keys = ["player_id", "snapshot_id"]
     island_keys = ["island_id", "snapshot_id"]
+
     city = city.with_columns(
         pl.col("player_island_city_count").sum().over(player_keys).alias("player_total_city_count"),
         pl.col("player_id").n_unique().over(island_keys).alias("island_player_count"),
@@ -102,16 +104,19 @@ def build_donation_analytics_player_island_snapshot(
     result = base.join(city, on=["player_id", "island_id", "snapshot_id"], how="left").join(
         player, on=["player_id", "snapshot_id"], how="left"
     )
+
     numeric_fill_columns = [
         column
         for column, dtype in zip(result.columns, result.dtypes, strict=True)
         if dtype.is_numeric()
         and column not in {"account_age_days", "estimated_research_cost_factor"}
     ]
+
     result = result.with_columns(pl.col(column).fill_null(0) for column in numeric_fill_columns)
     result = result.with_columns(observed_construction_coverage_expr())
 
     island_keys = ["country_code", "snapshot_id", "island_id"]
+
     result = result.with_columns(
         pl.col("donations_total").sum().over(island_keys).alias("island_donations_total"),
         pl.col("sawmill_donations_total").sum().over(island_keys).alias("island_sawmill_donations_total"),
@@ -121,6 +126,7 @@ def build_donation_analytics_player_island_snapshot(
         .alias("island_luxury_mine_donations_total"),
         pl.col("wonder_donations_total").sum().over(island_keys).alias("island_wonder_donations_total"),
     )
+
     result = result.with_columns(
         safe_divide(pl.col("island_donations_total"), pl.col("island_player_count")).alias(
             "island_avg_donations_per_player"
@@ -151,6 +157,7 @@ def build_donation_analytics_player_island_snapshot(
             pl.col("island_player_count") - 1,
         ).alias("island_peer_wonder_donations_avg"),
     )
+
     result = result.with_columns(
         (pl.col("donations_total") - pl.col("island_peer_donations_avg")).alias(
             "donations_minus_island_peer_avg"
@@ -190,6 +197,7 @@ def build_donation_analytics_player_island_snapshot(
         .otherwise(pl.col("donations_total") / pl.col("account_age_days"))
         .alias("cumulative_donations_per_account_age_day"),
     )
+
     result = result.with_columns(
         safe_percent(
             pl.col("sawmill_donations_total") + pl.col("luxury_mine_donations_total"),

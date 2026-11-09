@@ -19,6 +19,7 @@ def test_island_upgrade_costs_match_sql_q23_tables():
             "tradegood": [2],
         }
     )
+
     result = enrich_islands(island_raw)
 
     assert result.select(

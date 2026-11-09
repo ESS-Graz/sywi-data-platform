@@ -1,4 +1,4 @@
-"""Step 09: higher-level aggregations — by avatar and by island.
+"""Step 09: higher-level aggregations — by player and by island.
 
 Produces four tables:
 - city3AV: (owner_id, snapshot_id) aggregates across all islands
@@ -34,14 +34,16 @@ def _sum_resource_columns() -> list[pl.Expr]:
     return [pl.col(column).sum().alias(column) for column in RESOURCE_COLUMNS]
 
 
-def aggregate_by_avatar(city_player_island: pl.DataFrame) -> pl.DataFrame:
+def aggregate_by_player(city_player_island: pl.DataFrame) -> pl.DataFrame:
     aggs: list[pl.Expr] = [
         pl.col("island_id").n_unique().alias("total_islands"),
         pl.col("cities_on_island").sum().alias("total_cities"),
         pl.col("Buerger_Ges").sum().alias("Buerger_Ges"),
         pl.col("Geblev").sum().alias("Geblev"),
     ]
+
     aggs.extend(_sum_resource_columns())
+
     return city_player_island.group_by(
         ["owner_id", "snapshot_id", "snapshot_date", "country", "server"]
     ).agg(aggs)
@@ -55,13 +57,15 @@ def aggregate_by_island(city_player_island: pl.DataFrame) -> pl.DataFrame:
         pl.col("Geblev").sum().alias("Geblev"),
         pl.col("Buerger_Ges").mean().alias("Avg_Buerger_per_player"),
     ]
+
     aggs.extend(_sum_resource_columns())
+
     return city_player_island.group_by(
         ["island_id", "snapshot_id", "snapshot_date", "country", "server"]
     ).agg(aggs)
 
 
-def donations_by_avatar(donation_raw: pl.DataFrame) -> pl.DataFrame:
+def donations_by_player(donation_raw: pl.DataFrame) -> pl.DataFrame:
     """Player-snapshot donation totals over every island.
 
     Reads the raw donation rows rather than ``donation_enriched``, so islands
@@ -76,6 +80,7 @@ def donations_by_avatar(donation_raw: pl.DataFrame) -> pl.DataFrame:
         pl.col("Don_Luxusminen").sum().alias("Don_Luxusminen_Ges"),
         pl.col("Don_Ges_raw").sum().alias("Don_Ges"),
     )
+
     return totals.with_columns(
         (pl.col("Don_Wonder_Ges") + pl.col("Don_Luxusminen_Ges")).alias("Don_Luxus_Ges")
     )
@@ -93,6 +98,7 @@ def donations_by_island(donation_enriched: pl.DataFrame) -> pl.DataFrame:
         pl.col("Don_Ges").sum().alias("Don_Ges"),
         pl.col("Don_Ges").mean().alias("Avg_Don_per_player"),
     )
+
     return g.with_columns(
         safe_percent(pl.col("donating_players"), pl.col("total_players")).alias(
             "donation_participation_rate"

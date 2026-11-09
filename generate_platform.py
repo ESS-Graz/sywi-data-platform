@@ -35,6 +35,7 @@ def is_project_dir(path: str) -> bool:
     pyproject = os.path.join(path, "pyproject.toml")
     if not os.path.exists(pyproject):
         return False
+
     # Check if it has a Dockerfile (indicating it's deployable)
     dockerfile = os.path.join(path, "Dockerfile")
     return os.path.exists(dockerfile)
@@ -43,13 +44,17 @@ def is_project_dir(path: str) -> bool:
 def discover_projects() -> list[str]:
     """Discover all Dagster projects in the root directory."""
     projects = []
+
     for item in os.listdir("."):
         if item.startswith(".") or item.startswith("_"):
             continue
+
         if item in EXCLUDED_DIRS:
             continue
+
         if os.path.isdir(item) and is_project_dir(item):
             projects.append(item)
+
     return sorted(projects)
 
 
@@ -126,6 +131,7 @@ def generate_compose(projects: list[str]) -> dict:
     # Add project services
     for project in projects:
         service_name = f"project_{project}"
+
         services[service_name] = {
             "build": {
                 "context": ".",
@@ -167,6 +173,7 @@ def generate_compose(projects: list[str]) -> dict:
 def generate_workspace(projects: list[str]) -> dict:
     """Generate Dagster workspace configuration for production."""
     load_from = []
+
     for project in projects:
         load_from.append(
             {
@@ -177,6 +184,7 @@ def generate_workspace(projects: list[str]) -> dict:
                 }
             }
         )
+
     return {"load_from": load_from}
 
 
@@ -187,22 +195,27 @@ def main():
 
     # Generate production compose
     compose = generate_compose(projects)
+
     with open(COMPOSE_PROD_FILE, "w") as f:
         f.write("# AUTO-GENERATED - DO NOT EDIT\n")
         f.write("# Production Docker Compose configuration\n")
         f.write("# Usage: docker compose -f docker-compose.prod.yaml up --build\n\n")
         yaml.dump(compose, f, default_flow_style=False, sort_keys=False)
+
     print(f"Generated {COMPOSE_PROD_FILE}")
 
     # Generate workspace config
     workspace = generate_workspace(projects)
+
     with open(WORKSPACE_FILE, "w") as f:
         f.write("# AUTO-GENERATED - DO NOT EDIT\n")
         f.write("# Dagster workspace configuration for production\n\n")
+
         if workspace["load_from"]:
             yaml.dump(workspace, f, default_flow_style=False)
         else:
             f.write("load_from: []\n")
+
     print(f"Generated {WORKSPACE_FILE}")
 
 

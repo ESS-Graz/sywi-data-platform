@@ -32,9 +32,11 @@ def _write_snapshot(
 ) -> None:
     snap_dir = _snapshot_dir(root, country, server, snapshot_date)
     snap_dir.mkdir(parents=True)
+
     pl.DataFrame(
         {"id": [f"{country}-player"], "registration_time": pl.Series([1366797600], dtype=dtype)}
     ).write_parquet(snap_dir / "avatar_0.parquet")
+
     pl.DataFrame({"ignored": [1]}).write_parquet(snap_dir / "logGovernmentChanges.parquet")
 
 
@@ -44,10 +46,12 @@ def test_raw_loader_reads_all_countries_and_adds_snapshot_columns(tmp_path: Path
     _write_snapshot(raw_root, "en", "2013-05-02", server=22)
 
     df = load_raw_table(_cfg(raw_root), "avatar").sort("country")
+
     assert df.select("country", "snapshot_id", "snapshot_date").to_dicts() == [
         {"country": "DE", "snapshot_id": "de23_2504_13", "snapshot_date": date(2013, 4, 25)},
         {"country": "EN", "snapshot_id": "en22_0205_13", "snapshot_date": date(2013, 5, 2)},
     ]
+
     assert df.sort("country")["server"].to_list() == [23, 22]
 
 
@@ -101,12 +105,14 @@ def test_raw_loader_rejects_snapshots_with_different_columns(tmp_path: Path):
     pl.DataFrame({"id": ["de-player"]}).write_parquet(later / "avatar_0.parquet")
 
     cfg = _cfg(raw_root)
+
     with pytest.raises(pl.exceptions.PolarsError, match="same schema"):
         load_raw_table(cfg, "avatar")
 
 
 def test_building_costs_rejects_empty_cells(tmp_path: Path):
     path = tmp_path / "building_costs.csv"
+
     path.write_text(
         "building_type;building_level;cost_holz;cost_quartz;cost_kristall;cost_wein;cost_schwefel\n1;2;158;;0;0;0\n",
         encoding="utf-8",

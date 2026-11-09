@@ -66,6 +66,7 @@ def run_foreground(cmd: list[str], cwd: Optional[Path] = None) -> int:
     """
     # On Windows, we need special handling for console processes
     kwargs: dict = {"cwd": cwd or SCRIPT_DIR}
+
     if sys.platform == "win32":
         # CREATE_NEW_PROCESS_GROUP allows the child to receive Ctrl+C
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -80,6 +81,7 @@ def run_foreground(cmd: list[str], cwd: Optional[Path] = None) -> int:
                 proc.send_signal(signal.CTRL_BREAK_EVENT)
             else:
                 proc.terminate()
+
         proc.wait()
         sys.exit(128 + sig)
 
@@ -93,6 +95,7 @@ def run_foreground(cmd: list[str], cwd: Optional[Path] = None) -> int:
         # Restore original handlers
         signal.signal(signal.SIGINT, original_sigint)
         signal.signal(signal.SIGTERM, original_sigterm)
+
         # Ensure process is terminated
         if proc.poll() is None:
             proc.terminate()
@@ -115,6 +118,7 @@ def require_env(name: str) -> str:
     if not value:
         err_console.print(f"[red]Error:[/red] {name} not set in .env.local")
         raise typer.Exit(1)
+
     return value
 
 
@@ -136,13 +140,17 @@ def _wait_for_postgres(max_attempts: int = 30) -> bool:
             sock.settimeout(1)
             result = sock.connect_ex(("localhost", 5432))
             sock.close()
+
             if result == 0:
                 return True
         except Exception:
             pass
+
         time.sleep(1)
+
         if attempt % 5 == 0:
             console.print(f"Waiting for PostgreSQL... ({attempt}/{max_attempts})")
+
     return False
 
 
@@ -209,12 +217,14 @@ def _sync_subprojects(projects: list[dict] | None = None) -> None:
         return
 
     console.print("Syncing subprojects...")
+
     for project in projects:
         path = project.get("path")
         if path:
             project_dir = SCRIPT_DIR / path
             if project_dir.exists():
                 console.print(f"  Syncing [bold]{path}[/bold]...")
+
                 try:
                     env = os.environ.copy()
                     env.pop("VIRTUAL_ENV", None)
@@ -222,6 +232,7 @@ def _sync_subprojects(projects: list[dict] | None = None) -> None:
                 except subprocess.CalledProcessError as e:
                     err_console.print(f"[red]Error:[/red] Failed to sync {path}")
                     raise typer.Exit(1) from e
+
     console.print("[green]All subprojects synced![/green]")
     console.print()
 
@@ -236,6 +247,7 @@ def _check_table_name(table: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_]+", table):
         err_console.print(f"[red]Error:[/red] Invalid table name '{table}'")
         raise typer.Exit(1)
+
     return table
 
 
@@ -256,16 +268,21 @@ def _remote_lance_uris() -> dict[str, str]:
     and each one is attached under its name.
     """
     remotes: dict[str, str] = {}
+
     for part in (p.strip() for p in os.environ.get("LANCE_REMOTE_URI", "").split(",")):
         if not part:
             continue
+
         name, separator, uri = part.partition("=")
         if not separator:
             name, uri = "remote", part
+
         if not re.fullmatch(r"[a-z][a-z0-9_]*", name) or name == "local" or name in remotes:
             err_console.print(f"[red]Error:[/red] Invalid or duplicate remote name '{name}' in LANCE_REMOTE_URI")
             raise typer.Exit(1)
+
         remotes[name] = uri
+
     return remotes
 
 
@@ -283,6 +300,7 @@ def _s3_secrets_sql(uris: list[str], use_getenv: bool) -> list[str]:
         return f"getenv('{name}')" if use_getenv else _sql_str(os.environ[name])
 
     buckets = []
+
     for uri in uris:
         if uri.startswith("s3://"):
             bucket = uri.split("/")[2]
@@ -291,6 +309,7 @@ def _s3_secrets_sql(uris: list[str], use_getenv: bool) -> list[str]:
 
     region = _sql_str(os.environ.get("AWS_REGION", "us-east-1"))
     lines = []
+
     for bucket in buckets:
         options = [
             "TYPE lance",
@@ -301,9 +320,12 @@ def _s3_secrets_sql(uris: list[str], use_getenv: bool) -> list[str]:
             "aws_virtual_hosted_style_request 'false'",
             f"SCOPE {_sql_str(f's3://{bucket}/')}",
         ]
+
         if os.environ.get("AWS_ENDPOINT_URL"):
             options.append(f"aws_endpoint {env_value('AWS_ENDPOINT_URL')}")
+
         lines.append(f"CREATE SECRET lance_{bucket.replace('-', '_')} ({', '.join(options)});")
+
     return lines
 
 
@@ -311,6 +333,7 @@ def _require_s3_credentials(uris: list[str]) -> None:
     """Exit with a clear message if an s3:// URI is used without S3 credentials."""
     if not any(uri.startswith("s3://") for uri in uris):
         return
+
     missing = [
         name
         for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
@@ -347,8 +370,10 @@ def build_duckdb_init_sql(include_remote: bool = True, use_getenv: bool = True) 
     lines = ["INSTALL lance; LOAD lance;", ""]
     lines.extend(_s3_secrets_sql([local_uri, *remotes.values()], use_getenv))
     lines.append(f"ATTACH {_sql_str(local_uri)} AS local (TYPE lance);")
+
     for name, uri in remotes.items():
         lines.append(f"ATTACH {_sql_str(uri)} AS {name} (TYPE lance);")
+
     lines.extend(["", "USE local.main;"])
 
     return "\n".join(lines)
@@ -369,6 +394,7 @@ def _create_temp_dg_toml(projects: list[dict]) -> Path:
 
     # Build dg.toml content
     lines = ['directory_type = "workspace"', "", "[workspace]"]
+
     for project in projects:
         path = project.get("path")
         if path:
@@ -405,6 +431,7 @@ def up():
 
     # Show which projects are enabled
     enabled_names: list[str] = [p["path"] for p in enabled_projects if p.get("path")]
+
     if len(enabled_projects) < len(all_projects):
         console.print(
             f"Enabled projects: [bold]{', '.join(enabled_names)}[/bold] "
@@ -412,6 +439,7 @@ def up():
         )
     else:
         console.print(f"Enabled projects: [bold]all[/bold] ({len(all_projects)})")
+
     console.print()
 
     # Sync only enabled subprojects
@@ -430,9 +458,11 @@ def up():
 
     console.print()
     console.print("Starting Dagster dev server (via dg)...")
+
     console.print(
         "Open [link=http://localhost:3000]http://localhost:3000[/link] in your browser"
     )
+
     console.print()
 
     # Set DAGSTER_HOME to project's .dagster/home directory
@@ -442,6 +472,7 @@ def up():
 
     # Create dagster.yaml for dev using PostgreSQL storage (avoids SQLite locking issues)
     dagster_yaml = dagster_home / "dagster.yaml"
+
     dagster_yaml.write_text(
         "storage:\n"
         "  postgres:\n"
@@ -618,6 +649,7 @@ def db(
     local_uri = _local_lance_uri()
     remotes = _remote_lance_uris()
     console.print(f"local:  {local_uri}")
+
     if local_only:
         console.print("remote: skipped (--local-only)")
     elif remotes:
@@ -628,11 +660,13 @@ def db(
             "[yellow]remote: not configured[/yellow] "
             "(set LANCE_REMOTE_URI and the AWS_* keys in .env.local, see .env.example)"
         )
+
     stale = _stale_variables()
     if stale:
         console.print(
             f"[yellow]Ignoring unused DuckLake variables in .env.local:[/yellow] {', '.join(stale)}"
         )
+
     console.print("Tables: SHOW ALL TABLES;  (local tables are also reachable without a prefix)")
     console.print()
 
@@ -676,9 +710,11 @@ def export_table(
 
     conn = duckdb.connect()
     conn.execute(build_duckdb_init_sql(use_getenv=False))
+
     conn.execute(
         f"COPY (SELECT * FROM {source_table}) TO {_sql_str(output_file)} ({format_opts})"
     )
+
     result = conn.execute(f"SELECT COUNT(*) FROM {source_table}").fetchone()
     row_count = result[0] if result else 0
     console.print(f"{output_file}: {row_count} rows exported from {source}")
@@ -702,6 +738,7 @@ def pull(
     if not remotes:
         err_console.print("[red]Error:[/red] LANCE_REMOTE_URI not set in .env.local")
         raise typer.Exit(1)
+
     if source is not None and source not in remotes:
         err_console.print(f"[red]Error:[/red] Unknown remote '{source}'. Available: {', '.join(remotes)}")
         raise typer.Exit(1)
@@ -710,6 +747,7 @@ def pull(
     conn.execute(build_duckdb_init_sql(use_getenv=False))
 
     names = ", ".join(_sql_str(name) for name in (remotes if source is None else [source]))
+
     found = conn.execute(
         f"SELECT database, name FROM (SHOW ALL TABLES) WHERE database IN ({names}) ORDER BY database, name"
     ).fetchall()
@@ -725,12 +763,14 @@ def pull(
     if not sources:
         err_console.print(f"[red]Error:[/red] Table '{table}' not found in {', '.join(remotes) if source is None else source}")
         raise typer.Exit(1)
+
     if len(sources) > 1:
         err_console.print(f"[red]Error:[/red] Table '{table}' exists in {', '.join(sources)}. Choose one with --from.")
         raise typer.Exit(1)
 
     target = f"{_local_lance_uri().rstrip('/')}/{table}.lance"
     query = f"SELECT * FROM {sources[0]}.main.{table}"
+
     if limit:
         query += f" LIMIT {int(limit)}"
     elif not yes:
@@ -784,6 +824,7 @@ def _mark_asset_materialized(asset_name: str, description: str) -> None:
                 metadata={"source": "dev cli"},
             )
         )
+
         console.print(f"Marked {asset_name} as materialized")
     except Exception as e:
         err_console.print(f"[yellow]Warning:[/yellow] Could not mark {asset_name}: {e}")

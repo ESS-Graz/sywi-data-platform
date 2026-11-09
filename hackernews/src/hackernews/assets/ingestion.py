@@ -77,6 +77,7 @@ def hackernews_titles(
     story_ids = hackernews_top_stories_ids["story_id"].tolist()
 
     results = []
+
     for story_id in story_ids:
         item = requests.get(
             f"https://hacker-news.firebaseio.com/v0/item/{story_id}.json"

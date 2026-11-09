@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import polars as pl
 
 from ikariam.processing.transforms.donations import process_donations
-from ikariam.processing.transforms.higher_agg import donations_by_avatar
+from ikariam.processing.transforms.higher_agg import donations_by_player
 
 SNAPSHOT = {"snapshot_id": "de23_0101_14", "snapshot_date": date(2014, 1, 1), "country": "DE", "server": 23}
 
@@ -42,7 +42,7 @@ def _islands() -> pl.DataFrame:
 
 
 def test_player_total_includes_islands_without_a_city() -> None:
-    totals = donations_by_avatar(_donations()).row(0, named=True)
+    totals = donations_by_player(_donations()).row(0, named=True)
 
     assert totals["Don_Ges"] == 180.0
     assert totals["Don_Wonder_Ges"] == 100.0

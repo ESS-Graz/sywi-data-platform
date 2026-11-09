@@ -7,6 +7,7 @@ def test_definitions_load():
     asset_keys = {
         tuple(key.path) for key in defs.resolve_asset_graph().get_all_asset_keys()
     }
+
     assert ("raw_avatar",) in asset_keys
     assert ("player_snapshot",) in asset_keys
     assert ("city_snapshot",) in asset_keys
@@ -28,6 +29,7 @@ def test_no_asset_depends_on_a_later_group():
 
     order = [RAW_GROUP, TRANSFORM_GROUP, PUBLIC_GROUP, EXPORT_GROUP]
     graph = defs.resolve_asset_graph()
+
     backward = [
         (parent.path[-1], key.path[-1])
         for key in graph.get_all_asset_keys()

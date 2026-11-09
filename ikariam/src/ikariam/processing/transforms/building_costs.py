@@ -71,11 +71,13 @@ def add_building_base_costs(
         for position in range(1, POSITION_COUNT + 1)
         for kind in ("t", "l")
     ]
+
     missing_position_columns = sorted(set(position_columns) - set(city_raw.columns))
     if missing_position_columns:
         raise ValueError(
             f"Missing building position columns: {missing_position_columns}"
         )
+
     if TOWN_HALL_LEVEL_COLUMN not in city_raw.columns:
         raise ValueError(f"Missing town hall level column: {TOWN_HALL_LEVEL_COLUMN}")
 
@@ -89,6 +91,7 @@ def add_building_base_costs(
         pl.col("building_level").cast(pl.Int64),
         *(pl.col(source).cast(pl.Float64) for source, _ in COST_COLUMNS),
     )
+
     duplicate_costs = costs.group_by(LOOKUP_KEYS).len().filter(pl.col("len") > 1)
     if not duplicate_costs.is_empty():
         duplicate_pairs = _format_pairs(duplicate_costs.select(LOOKUP_KEYS))
@@ -119,11 +122,13 @@ def add_building_base_costs(
             )
         ]
     )
+
     negative_levels = slots.filter(pl.col("building_level") < 0)
     if not negative_levels.is_empty():
         raise ValueError(
             f"Negative building levels: {_format_pairs(negative_levels.select(LOOKUP_KEYS).unique())}"
         )
+
     buildings = slots.filter(
         (pl.col("building_type") > 0) & (pl.col("building_level") > 0)
     )
@@ -131,6 +136,7 @@ def add_building_base_costs(
     reducers = buildings.filter(
         pl.col("building_type").is_in(list(REDUCTION_BUILDING_TYPES.values()))
     )
+
     duplicate_reducers = (
         reducers.group_by("_city_row", "building_type").len().filter(pl.col("len") > 1)
     )
@@ -138,6 +144,7 @@ def add_building_base_costs(
         raise ValueError(
             f"Duplicate reduction buildings in {duplicate_reducers.select('_city_row').n_unique()} city rows: {_sample_city_keys(cities, duplicate_reducers)}"
         )
+
     over_cap_reducers = reducers.filter(
         pl.col("building_level") > HISTORICAL_REDUCTION_BUILDING_MAX_LEVEL
     )
@@ -147,6 +154,7 @@ def add_building_base_costs(
         )
 
     used_buildings = buildings.select(LOOKUP_KEYS).unique()
+
     missing_costs = used_buildings.join(
         costs.select(LOOKUP_KEYS),
         on=LOOKUP_KEYS,
@@ -169,7 +177,9 @@ def add_building_base_costs(
             ),
         )
     )
+
     cost_output_columns = [target for _, target in COST_COLUMNS]
+
     return (
         cities.join(city_costs, on="_city_row", how="left", validate="1:1")
         .with_columns(
@@ -195,6 +205,7 @@ def _sample_city_keys(
     cities: pl.DataFrame, rows: pl.DataFrame
 ) -> list[dict[str, object]]:
     keys = [column for column in ("id", "snapshot_id") if column in cities.columns]
+
     return (
         cities.join(rows.select("_city_row").unique(), on="_city_row", how="semi")
         .sort("_city_row")

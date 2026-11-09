@@ -37,7 +37,7 @@ def _level_cols() -> list[pl.Expr]:
 
 
 def compute_city_metrics(
-    city_with_costs: pl.DataFrame, avatar_enriched: pl.DataFrame
+    city_with_costs: pl.DataFrame, player_enriched: pl.DataFrame
 ) -> pl.DataFrame:
     missing_level_columns = sorted(
         set(REDUCTION_LEVEL_COLUMNS.values()) - set(city_with_costs.columns)
@@ -80,6 +80,7 @@ def compute_city_metrics(
         pl.col("tradegood3").alias("crystal_stored"),
         pl.col("tradegood4").alias("sulfur_stored"),
     )
+
     df = df.with_columns(
         pl.sum_horizontal(
             [pl.col(f"{resource}_stored") for resource in RESOURCE_NAMES]
@@ -87,14 +88,15 @@ def compute_city_metrics(
     )
 
     # Attach the single player-snapshot estimate and its provenance.
-    avatar_slice = avatar_enriched.select(
+    player_slice = player_enriched.select(
         pl.col("id").alias("owner_id"),
         pl.col("snapshot_id"),
         "estimated_research_cost_factor",
         "estimated_research_cost_factor_source",
         "research_evidence_tier",
     )
-    df = df.join(avatar_slice, on=["owner_id", "snapshot_id"], how="left")
+
+    df = df.join(player_slice, on=["owner_id", "snapshot_id"], how="left")
 
     # Research is player-wide; each reduction building lowers one resource by
     # one percentage point per level, only in its own city at this snapshot.
@@ -102,7 +104,9 @@ def compute_city_metrics(
     research_reduction_points = (
         (1 - pl.col("estimated_research_cost_factor")) * 100
     ).round(0)
+
     factor_columns = [f"estimated_{resource}_cost_factor" for resource in RESOURCE_NAMES]
+
     df = df.with_columns(
         [
             (
@@ -116,6 +120,7 @@ def compute_city_metrics(
             for resource in RESOURCE_NAMES
         ]
     )
+
     invalid_factors = df.filter(
         pl.any_horizontal(
             [
@@ -142,6 +147,7 @@ def compute_city_metrics(
             for resource in RESOURCE_NAMES
         ]
     )
+
     df = df.with_columns(
         pl.sum_horizontal(
             [pl.col(f"estimated_building_cost_{resource}") for resource in RESOURCE_NAMES]
@@ -159,6 +165,7 @@ def compute_city_metrics(
             for resource in RESOURCE_NAMES
         ]
     )
+
     df = df.with_columns(
         pl.sum_horizontal(
             [pl.col(f"estimated_{resource}_resource_value") for resource in RESOURCE_NAMES]
@@ -175,6 +182,7 @@ def compute_city_metrics(
             + pl.col("priests")
         ).alias("Buerger_Ges"),
     )
+
     df = df.with_columns(
         # Building levels include the town hall, which has no numbered slot and
         # is also published separately as town_hall_level.

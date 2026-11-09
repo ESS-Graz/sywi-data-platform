@@ -31,15 +31,20 @@ def _remote_uris() -> dict[str, str]:
     `ikariam=s3://ikariam/ikariam.lancedb,hackernews=s3://hackernews/lance`.
     """
     remotes: dict[str, str] = {}
+
     for part in (p.strip() for p in os.getenv("LANCE_REMOTE_URI", "").split(",")):
         if not part:
             continue
+
         name, separator, uri = part.partition("=")
         if not separator:
             name, uri = "remote", part
+
         if not re.fullmatch(r"[a-z][a-z0-9_]*", name) or name == "local" or name in remotes:
             raise ConnectionError(f"Invalid or duplicate remote name '{name}' in LANCE_REMOTE_URI")
+
         remotes[name] = uri
+
     return remotes
 
 
@@ -58,6 +63,7 @@ def _s3_secret_sql(bucket: str) -> str:
         "aws_virtual_hosted_style_request 'false'",
         f"SCOPE {_sql_str(f's3://{bucket}/')}",
     ]
+
     if os.getenv("AWS_ENDPOINT_URL"):
         options.append(f"aws_endpoint {_sql_str(os.environ['AWS_ENDPOINT_URL'])}")
 
@@ -97,6 +103,7 @@ def connect() -> duckdb.DuckDBPyConnection:
         Path(local_uri).mkdir(parents=True, exist_ok=True)
 
     buckets: list[str] = []
+
     for uri in (local_uri, *remotes.values()):
         if uri.startswith("s3://") and uri.split("/")[2] not in buckets:
             buckets.append(uri.split("/")[2])
@@ -104,10 +111,12 @@ def connect() -> duckdb.DuckDBPyConnection:
     statements = ["INSTALL lance", "LOAD lance"]
     statements.extend(_s3_secret_sql(bucket) for bucket in buckets)
     statements.append(f"ATTACH {_sql_str(local_uri)} AS local (TYPE lance)")
+
     for name, uri in remotes.items():
         statements.append(f"ATTACH {_sql_str(uri)} AS {name} (TYPE lance)")
 
     conn = duckdb.connect()
+
     try:
         for statement in statements:
             conn.execute(statement)

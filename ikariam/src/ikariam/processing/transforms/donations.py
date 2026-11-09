@@ -47,7 +47,7 @@ def process_donations(
         pl.col("Don_Ges_raw").sum().alias("Don_Ges"),
     )
 
-    # city_keys = every (avatar, island, snapshot) where the avatar has a city.
+    # city_keys = every (player, island, snapshot) where the player has a city.
     # AUDITED: keyed on (owner_id, island_id, snapshot_id) only.
     city_keys = (
         city_player_island.select(
@@ -62,13 +62,13 @@ def process_donations(
     # Q29_Delete_Donations_without_city. The raw amounts are running totals, so
     # an island the player has left (mostly a relocated city) keeps its old
     # amount; these rows have no city to attach to at player-island grain.
-    # Player totals (higher_agg.donations_by_avatar) read the raw rows and keep them.
+    # Player totals (higher_agg.donations_by_player) read the raw rows and keep them.
     agg = agg.join(
         city_keys, on=["avatar_id", "island_id", "snapshot_id"], how="semi"
     )
 
     # Add synthetic zero-donation rows. Legacy SQL name: Q19_Create_NoDons.
-    # This keeps the A_DS/I_DS denominators correct for avatar-island-snapshot
+    # This keeps the A_DS/I_DS denominators correct for player-island-snapshot
     # triples with cities but no donations.
     missing = city_keys.join(
         agg.select(["avatar_id", "island_id", "snapshot_id"]),
@@ -82,6 +82,7 @@ def process_donations(
             pl.lit(0.0).alias("Don_Luxusminen_Ges"),
             pl.lit(0.0).alias("Don_Ges"),
         )
+
         agg = pl.concat([agg, zeros], how="diagonal_relaxed")
 
     # Attach island tradegood for wonder split.
@@ -90,6 +91,7 @@ def process_donations(
         pl.col("tradegood").cast(pl.Int64, strict=False).alias("island_tradegood"),
         pl.col("snapshot_id"),
     ).unique(subset=["island_id", "snapshot_id"])
+
     agg = agg.join(island_tradegood, on=["island_id", "snapshot_id"], how="left")
 
     # Split wonder donations by resource. Ikariam allows miracle/wonder
@@ -147,6 +149,7 @@ def process_donations(
         city_player_island.select(["snapshot_id", "snapshot_date", "country", "server"])
         .unique(subset=["snapshot_id"])
     )
+
     agg = agg.join(snap_meta, on="snapshot_id", how="left")
 
     return agg

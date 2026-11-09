@@ -19,6 +19,7 @@ RESOURCES = tuple(BASE_COSTS)
 
 def _cities(*overrides: dict[str, object]) -> pl.DataFrame:
     rows = []
+
     for index, override in enumerate(overrides or ({},), start=1):
         row: dict[str, object] = {
             "id": f"c{index}",
@@ -46,12 +47,14 @@ def _cities(*overrides: dict[str, object]) -> pl.DataFrame:
         }
         row.update(override)
         rows.append(row)
+
     return pl.DataFrame(rows)
 
 
 def _player(*snapshot_ids: str, factor: float = 0.86) -> pl.DataFrame:
     snapshot_ids = snapshot_ids or ("s1",)
     count = len(snapshot_ids)
+
     return pl.DataFrame(
         {
             "id": ["p1"] * count,
@@ -89,6 +92,7 @@ def test_city_metrics_keep_base_costs_and_estimates_reconcilable() -> None:
         "Baumeister_Highscore",
         "duration_adjustment",
     }
+
     assert legacy_columns.isdisjoint(row)
 
 
@@ -97,6 +101,7 @@ def test_without_reducers_factors_equal_research_factor(research_factor: float) 
     row = compute_city_metrics(_cities(), _player(factor=research_factor)).row(0, named=True)
 
     assert _factors(row) == dict.fromkeys(RESOURCES, research_factor)
+
     for resource, cost in BASE_COSTS.items():
         assert row[f"estimated_building_cost_{resource}"] == pytest.approx(cost * research_factor)
 
@@ -113,12 +118,14 @@ def test_carpenter_discounts_only_wood() -> None:
         "sulfur": 0.86,
         "wine": 0.86,
     }
+
     assert row["estimated_building_cost_wood"] == pytest.approx(66.0)
     assert row["estimated_building_cost_marble"] == pytest.approx(25.8)
 
 
 def test_each_resource_uses_its_own_reducer_level() -> None:
     levels = {"wood": 20, "marble": 10, "crystal": 5, "wine": 1, "sulfur": 32}
+
     row = compute_city_metrics(
         _cities({REDUCTION_LEVEL_COLUMNS[resource]: level for resource, level in levels.items()}),
         _player(),
@@ -131,17 +138,22 @@ def test_each_resource_uses_its_own_reducer_level() -> None:
         "sulfur": 0.54,
         "wine": 0.85,
     }
+
     for resource, cost in BASE_COSTS.items():
         assert row[f"building_base_cost_{resource}"] == cost
         assert row[f"{resource}_stored"] == STORED[resource]
+
         assert row[f"estimated_building_cost_{resource}"] == pytest.approx(
             cost * row[f"estimated_{resource}_cost_factor"]
         )
+
         assert row[f"estimated_{resource}_resource_value"] == pytest.approx(
             row[f"estimated_building_cost_{resource}"] + STORED[resource]
         )
+
     assert row["building_base_cost_total"] == 200.0
     assert row["resources_stored_total"] == 15.0
+
     assert row["estimated_building_cost_total"] == pytest.approx(
         sum(row[f"estimated_building_cost_{resource}"] for resource in RESOURCES)
     )
@@ -207,6 +219,7 @@ def test_building_cost_and_city_metric_steps_share_reducer_columns() -> None:
             pl.lit(0).alias("level"),
         )
     )
+
     costs = pl.DataFrame(
         {
             "building_type": [3, 23],
@@ -240,6 +253,7 @@ def test_town_hall_cost_and_level_flow_into_city_metrics() -> None:
         .with_columns(pl.lit(0).alias(f"p{position}t") for position in range(1, 18))
         .with_columns(pl.lit(0).alias(f"p{position}l") for position in range(1, 18))
     )
+
     # Every numbered slot is empty, so the town hall at level 7 is the only
     # building this city owns.
     costs = pl.DataFrame(
