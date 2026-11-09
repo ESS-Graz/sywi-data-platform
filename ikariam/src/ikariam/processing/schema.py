@@ -17,100 +17,83 @@ _RESOURCE_UNITS: dict[str, str] = {
     "wine": "wine",
 }
 
+# Unit of every *_total column that adds the five resources one to one.
+_SUM_UNIT = "resource units (unweighted sum of wood, wine, marble, crystal and sulfur)"
+_SUM_NOTE = "Plain sum of the five resources, one unit each; not a value in gold, and dominated by wood, so compare the five resources separately when value matters."
+
+# Raw city column behind each stored resource.
+_STORED_SOURCE: dict[str, str] = {
+    "wood": "resource",
+    "wine": "tradegood1",
+    "marble": "tradegood2",
+    "crystal": "tradegood3",
+    "sulfur": "tradegood4",
+}
+
 
 def _building_cost_docs(scope: str) -> dict[str, dict[str, str]]:
+    """Undiscounted list price and current-discount estimate of the standing buildings."""
     docs = {
         f"building_base_cost_{resource}": {
-            "description": (
-                f"Undiscounted cumulative base {resource} cost of buildings currently present {scope}, including the town hall"
-            ),
+            "description": f"Full list price in {resource} of all buildings standing {scope} at this snapshot, including the town hall, without any discount: for each building, the cumulative cost of all its levels from the building cost table. The starting point for estimated_building_cost_{resource} and historical_building_cost_{resource}.",
             "unit": unit,
         }
         for resource, unit in _RESOURCE_UNITS.items()
     }
-
     docs["building_base_cost_total"] = {
-        "description": (
-            f"Total undiscounted cumulative base-resource cost of buildings currently present {scope}, including the town hall"
-        ),
-        "unit": "sum",
+        "description": f"building_base_cost_wood + _wine + _marble + _crystal + _sulfur. {_SUM_NOTE}",
+        "unit": _SUM_UNIT,
     }
-
     docs.update(
         {
             f"estimated_building_cost_{resource}": {
-                "description": (
-                    f"Counterfactual {resource} cost of the buildings currently present {scope}, including the town hall, under this snapshot's estimated research reduction and the observed {resource} reduction-building level of each building's city; not observed historical expenditure"
-                ),
+                "description": f"building_base_cost_{resource} with this snapshot's discount applied to every standing level {scope}: list price times each city's estimated_{resource}_cost_factor (player research plus the city's own {resource} reduction building). Assumes old buildings got today's discount, so it understates what was really paid; for that, use historical_building_cost_{resource}.",
                 "unit": unit,
             }
             for resource, unit in _RESOURCE_UNITS.items()
         }
     )
-
     docs["estimated_building_cost_total"] = {
-        "description": (
-            f"Sum of the five counterfactual resource costs of the buildings currently present {scope}, including the town hall; not observed historical expenditure"
-        ),
-        "unit": "sum",
+        "description": f"estimated_building_cost_wood + _wine + _marble + _crystal + _sulfur. {_SUM_NOTE}",
+        "unit": _SUM_UNIT,
     }
-
     return docs
 
 
 def _construction_docs(scope: str) -> dict[str, dict[str, str]]:
-    """Vintage-priced construction measures; see `_building_cost_docs` for the
-    undiscounted and current-factor families they sit alongside."""
+    """Cost of building levels priced at the discount active when each level was built."""
     docs = {
         f"historical_building_cost_{resource}": {
-            "description": (
-                f"Estimated {resource} actually paid for the buildings standing {scope}, with each level priced at the discount state active in the interval when it appeared instead of the current factor"
-            ),
+            "description": f"Estimated {resource} actually paid for the buildings standing {scope}: each level is priced at the discount active when it was built (the midpoint of the city's factor at the two snapshots around its construction). Levels already present at the first snapshot of a building use that snapshot's discount. The best estimate of real spending on standing buildings; check observed_construction_coverage before relying on it.",
             "unit": unit,
         }
         for resource, unit in _RESOURCE_UNITS.items()
     }
-
     docs["historical_building_cost_total"] = {
-        "description": (
-            f"Total estimated resources actually paid for the buildings standing {scope}, each level priced at its own vintage"
-        ),
-        "unit": "sum",
+        "description": f"historical_building_cost_wood + _wine + _marble + _crystal + _sulfur. {_SUM_NOTE}",
+        "unit": _SUM_UNIT,
     }
-
     docs.update(
         {
             f"lifetime_construction_spend_{resource}": {
-                "description": (
-                    f"Estimated {resource} paid for every building level ever constructed {scope}, including levels later demolished; never decreases over a trajectory"
-                ),
+                "description": f"Estimated {resource} paid for every building level ever built {scope}, including levels that were later demolished; priced like historical_building_cost_{resource}. Never decreases over time. The gap to historical_building_cost_{resource} is the value lost to demolition.",
                 "unit": unit,
             }
             for resource, unit in _RESOURCE_UNITS.items()
         }
     )
-
     docs["lifetime_construction_spend_total"] = {
-        "description": (
-            f"Total estimated resources paid for every building level ever constructed {scope}, including levels later demolished; the gap to historical_building_cost_total is what demolition wrote off"
-        ),
-        "unit": "sum",
+        "description": f"lifetime_construction_spend_wood + _wine + _marble + _crystal + _sulfur. {_SUM_NOTE}",
+        "unit": _SUM_UNIT,
     }
-
     docs["opening_stock_base_cost_total"] = {
-        "description": (
-            "Undiscounted base cost of the standing levels that were already present the first time their building was observed. Their build interval is unknown, so they are priced at that first observation's factor rather than a bracketed midpoint"
-        ),
-        "unit": "sum",
+        "description": f"Full list price (no discount, five resources summed) of the standing levels {scope} that already existed when their building was first observed, so their build time is unknown and their historical price is a guess. Used for observed_construction_coverage.",
+        "unit": _SUM_UNIT,
     }
-
     docs["observed_construction_coverage"] = {
-        "description": (
-            "Share of this row's standing building value that could be dated to an observed interval: 1 minus opening_stock_base_cost_total divided by building_base_cost_total. Lower values rest more on the opening-stock assumption"
-        ),
-        "unit": "ratio",
+        "description": "Share of the standing building value whose build time is known: 1 - opening_stock_base_cost_total / building_base_cost_total. Close to 1 on the five long-running servers; 0 on the 13 servers with a single snapshot, where historical_building_cost_* equals estimated_building_cost_*. Reads 1.0 when there are no buildings at all, so exclude rows with building_base_cost_total = 0 when averaging.",
+        "unit": "ratio between 0 and 1",
     }
-
     return docs
 
 
@@ -124,86 +107,69 @@ _REDUCTION_BUILDING_NAMES: dict[str, str] = {
 
 
 def _reduction_building_docs() -> dict[str, dict[str, str]]:
+    """City-local reduction buildings and the resulting discount factor."""
     docs = {
         f"{resource}_reduction_building_level": {
-            "description": (
-                f"Observed level of this city's {building} at this snapshot, 0 when absent; each level lowers this city's {resource} building costs by one percentage point and is not carried into other snapshots"
-            ),
+            "description": f"Level of this city's {building} at this snapshot, 0 if the city has none. Each level lowers the {resource} cost of buildings in this city only by one percentage point.",
             "unit": "level",
         }
         for resource, building in _REDUCTION_BUILDING_NAMES.items()
     }
-
     docs.update(
         {
             f"estimated_{resource}_cost_factor": {
-                "description": (
-                    f"Estimated payable {resource} building-cost multiplier in this city at this snapshot: 1 minus the estimated research reduction minus 0.01 per {building} level; between 0.54 and 1.00 under the historical level-32 limit"
-                ),
-                "unit": "ratio",
+                "description": f"Share of the list price in {resource} this city pays for a new building level at this snapshot: 1 - research reduction (1 - estimated_research_cost_factor) - 0.01 per {building} level. Between 0.54 and 1.00. Multiplies building_base_cost_{resource} into estimated_building_cost_{resource}.",
+                "unit": "ratio between 0.54 and 1",
             }
             for resource, building in _REDUCTION_BUILDING_NAMES.items()
         }
     )
-
     return docs
 
 
 def _stored_resource_docs(scope: str) -> dict[str, dict[str, str]]:
+    """Resources in storage at the snapshot."""
     docs = {
         f"{resource}_stored": {
-            "description": f"Currently stored {resource} {scope}",
+            "description": f"{resource.capitalize()} in storage {scope} at the moment of this snapshot (raw city column {_STORED_SOURCE[resource]}). A stock that rises with production and falls when the player builds or trades, not the amount produced.",
             "unit": unit,
         }
         for resource, unit in _RESOURCE_UNITS.items()
     }
-
     docs["resources_stored_total"] = {
-        "description": f"Total currently stored resources {scope}",
-        "unit": "sum",
+        "description": f"wood_stored + wine_stored + marble_stored + crystal_stored + sulfur_stored. {_SUM_NOTE}",
+        "unit": _SUM_UNIT,
     }
-
     return docs
 
 
 def _estimated_resource_value_docs(scope: str) -> dict[str, dict[str, str]]:
+    """Resources tied up in standing buildings plus storage."""
     docs = {
         f"estimated_{resource}_resource_value": {
-            "description": (
-                f"Estimated {resource} building cost plus currently stored {resource} {scope}"
-            ),
+            "description": f"{resource.capitalize()} tied up {scope} at this snapshot: estimated_building_cost_{resource} (standing buildings at this snapshot's discount) + {resource}_stored. Leaves out demolished buildings, ships and units, trades and donations, so it is neither income nor total spending.",
             "unit": unit,
         }
         for resource, unit in _RESOURCE_UNITS.items()
     }
-
     docs["estimated_resource_value_total"] = {
-        "description": (
-            f"Total estimated building cost plus currently stored resources {scope}"
-        ),
-        "unit": "sum",
+        "description": f"estimated_building_cost_total + resources_stored_total, the five estimated_*_resource_value columns added. {_SUM_NOTE}",
+        "unit": _SUM_UNIT,
     }
-
     return docs
 
 
 RESEARCH_COST_ESTIMATE_DOCS: dict[str, dict[str, str]] = {
     "estimated_research_cost_factor": {
-        "description": (
-            "Estimated research component of the building-cost multiplier, shared by all of the player's cities: the stronger of the snapshot-age heuristic and research evidence observed in this or an earlier snapshot; city payable factors that also include local reduction buildings are city_snapshot.estimated_<resource>_cost_factor"
-        ),
+        "description": "Share of the list price the player still pays after research discounts (Pulley 2%, Geometry 4%, Spirit Level 8%), the same for all of the player's cities: 1.00, 0.98, 0.94 or 0.86. Research is not in the data, so it is estimated as the stronger of an account-age rule and the buildings the player has built so far (research_evidence_tier). City-specific factors that also include reduction buildings are city_snapshot.estimated_<resource>_cost_factor.",
         "unit": "ratio",
     },
     "estimated_research_cost_factor_source": {
-        "description": (
-            "Source that determined the estimated factor: building_evidence only when it implies a strictly smaller factor, otherwise age_heuristic"
-        ),
+        "description": "Which rule set estimated_research_cost_factor: building_evidence when the player's buildings prove more research than the account age suggests, otherwise age_heuristic.",
         "unit": "enum",
     },
     "research_evidence_tier": {
-        "description": (
-            "Strongest minimum research tier supported by buildings observed in this or an earlier snapshot: none, pulley_or_later, geometry_or_later, or spirit_level_or_later"
-        ),
+        "description": "Highest research level proven by buildings seen in this or an earlier snapshot (a building that needs a given research): none, pulley_or_later, geometry_or_later or spirit_level_or_later.",
         "unit": "enum",
     },
 }
@@ -357,10 +323,10 @@ ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
         "unit": "count",
     },
     "population_total": {"description": "Total population across players", "unit": "count"},
-    **_building_cost_docs("across players on this island"),
-    **_stored_resource_docs("across players on this island"),
-    **_estimated_resource_value_docs("across players on this island"),
-    **_construction_docs("across players on this island"),
+    **_building_cost_docs("across all cities on this island"),
+    **_stored_resource_docs("across all cities on this island"),
+    **_estimated_resource_value_docs("across all cities on this island"),
+    **_construction_docs("across all cities on this island"),
     "building_levels_total": {"description": "Sum of building levels across players, including town halls", "unit": "sum_levels"},
     "avg_population_per_player": {"description": "Average population per player", "unit": "count"},
     "donating_player_count": {"description": "Players with a city on this island whose running donation total here is above zero", "unit": "count"},
