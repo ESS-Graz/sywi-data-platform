@@ -1,4 +1,4 @@
-.read 00_setup.sql
+.read ikariam/sql/explore/00_setup.sql
 
 -- Player profile per server on its latest snapshot day
 SELECT country_code, server, count(*) AS players,

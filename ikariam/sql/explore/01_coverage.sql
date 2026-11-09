@@ -1,4 +1,4 @@
-.read 00_setup.sql
+.read ikariam/sql/explore/00_setup.sql
 
 -- Which servers exist, and how many snapshot days do we have for each?
 SELECT country_code, server,

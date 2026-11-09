@@ -1,4 +1,4 @@
-.read 00_setup.sql
+.read ikariam/sql/explore/00_setup.sql
 
 -- How concentrated are donations? Share given by the top 1% / 10% of donors per server
 WITH per_player AS (

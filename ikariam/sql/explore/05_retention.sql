@@ -1,4 +1,4 @@
-.read 00_setup.sql
+.read ikariam/sql/explore/00_setup.sql
 
 -- Of the players present on a server's first snapshot day, how many are still there on the last?
 -- Only meaningful for servers with several snapshot days (n_days > 1); a server with a

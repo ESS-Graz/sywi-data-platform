@@ -627,8 +627,13 @@ def db(
     local_only: bool = typer.Option(
         False, "--local-only", "-l", help="Only attach local database (skip remote)"
     ),
+    file: str | None = typer.Option(
+        None, "--file", "-f", help="Run this SQL file and exit (path from the repository root)"
+    ),
 ):
     """Open interactive DuckDB session (local + remote Lance databases attached).
+
+    With --file, run one SQL file in that session and print the results instead.
 
     Requires the DuckDB CLI (version 2.0 or newer, for the core lance extension):
     - macOS: brew install duckdb
@@ -643,6 +648,13 @@ def db(
         err_console.print("  Windows: winget install DuckDB.cli")
         err_console.print("  Linux:   https://duckdb.org/docs/installation/")
         raise typer.Exit(1)
+
+    sql_file = None
+    if file is not None:
+        sql_file = (SCRIPT_DIR / file).resolve()
+        if not sql_file.is_file():
+            err_console.print(f"[red]Error:[/red] SQL file not found: {file}")
+            raise typer.Exit(1)
 
     sql = build_duckdb_init_sql(include_remote=not local_only)
 
@@ -666,6 +678,9 @@ def db(
         console.print(
             f"[yellow]Ignoring unused DuckLake variables in .env.local:[/yellow] {', '.join(stale)}"
         )
+
+    if sql_file is not None:
+        raise typer.Exit(run_foreground(["duckdb", "-cmd", sql, "-f", str(sql_file)]))
 
     console.print("Tables: SHOW ALL TABLES;  (local tables are also reachable without a prefix)")
     console.print()

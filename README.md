@@ -2,6 +2,8 @@
 
 A data platform built with [Dagster](https://dagster.io/) and [LanceDB](https://lancedb.com/). Assets are stored as Lance tables, which you can query with [DuckDB](https://duckdb.org/) 2.0.
 
+> **Only want to query the Ikariam data?** See [Getting Started with the Data](ikariam/README.md#getting-started-with-the-data).
+
 ## Prerequisites
 
 ### Required
@@ -10,7 +12,7 @@ A data platform built with [Dagster](https://dagster.io/) and [LanceDB](https://
 |------|-------|---------|-------|
 | [uv](https://github.com/astral-sh/uv) | `brew install uv` | `winget install --id=astral-sh.uv -e` | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | [just](https://github.com/casey/just) | `brew install just` | `winget install --id=Casey.Just --exact` | `brew install just` or [see docs](https://just.systems/man/en/packages.html) |
-| [Docker](https://docs.docker.com/get-docker/) | Docker Desktop | Docker Desktop | `apt install docker.io docker-compose` |
+| [Docker](https://docs.docker.com/get-docker/) (only to run pipelines) | Docker Desktop | Docker Desktop | `apt install docker.io docker-compose` |
 
 Production Docker builds use Docker Hardened Images from `dhi.io`. Log in before
 building or deploying:
@@ -143,7 +145,7 @@ SELECT * FROM remote.hackernews_stories LIMIT 10;
 SELECT * FROM hackernews.hackernews_stories LIMIT 10;
 ```
 
-Use `just db -l` to skip connecting to remote.
+Use `just db -l` to skip connecting to remote. `just db -f <file.sql>` runs one SQL file in such a session and exits; the path is relative to the repository root, for example `just db -f ikariam/sql/explore/01_coverage.sql`.
 
 #### Pull Data from Remote
 
@@ -297,6 +299,7 @@ dbGetQuery(con, "SELECT * FROM local.my_table")
 | `just new <name>` | Create a new project (Dagster code location) |
 | `just db` | Open interactive DuckDB session |
 | `just db -l` | DuckDB session (local only, skip remote) |
+| `just db -f <file.sql>` | Run one SQL file in a DuckDB session and exit |
 | `just pull` | List remote tables |
 | `just pull <table>` | Pull table from remote |
 | `just pull <table> <limit>` | Pull limited rows |

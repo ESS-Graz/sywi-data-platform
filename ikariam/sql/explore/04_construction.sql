@@ -1,4 +1,4 @@
-.read 00_setup.sql
+.read ikariam/sql/explore/00_setup.sql
 
 -- Most built building types, excluding the buildings every city starts with.
 -- (Takes ~30 s: this table has 35 million rows.)

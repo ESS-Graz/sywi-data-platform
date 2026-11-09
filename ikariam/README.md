@@ -1,6 +1,65 @@
-# Ikariam Pipeline Data Model
+# Ikariam Data
 
-This directory contains the pipeline for processing Ikariam data snapshots into clean, analytics-ready tables.
+Snapshots of the browser game Ikariam (2013–2014, 20 servers in 10 countries), cleaned into tables for analysis. This README explains how to query them and what to watch out for. The pipeline that builds the tables is in this directory too; see [For Pipeline Developers](#for-pipeline-developers) at the end.
+
+## Getting Started with the Data
+
+The tables are on the university's S3 storage. You query them in place with DuckDB; nothing has to be downloaded and Docker is not needed.
+
+1. Install [uv](https://github.com/astral-sh/uv), [just](https://github.com/casey/just) and the [DuckDB CLI](https://duckdb.org/docs/installation/) (version 2.0 or newer). The [main README](../README.md#prerequisites) has the install commands; Docker, also listed there, is only needed to run the pipeline.
+2. Clone the repository:
+   ```bash
+   git clone https://github.com/ESS-Graz/sywi-data-platform.git
+   cd sywi-data-platform
+   ```
+3. Put the `.env.local` file you received into the repository root. It holds your S3 keys and must contain these lines:
+   ```bash
+   LANCE_REMOTE_URI=ikariam=s3://ikariam/ikariam.lancedb
+   AWS_ACCESS_KEY_ID=...
+   AWS_SECRET_ACCESS_KEY=...
+   AWS_ENDPOINT_URL=https://data.systems-sciences.uni-graz.at
+   AWS_REGION=us-east-1
+   ```
+4. Run a first query file. It lists every server with its snapshot days and player count:
+   ```bash
+   just db -f ikariam/sql/explore/01_coverage.sql
+   ```
+
+### Working in a Session
+
+`just db` opens an interactive DuckDB session with the tables attached as `ikariam`. Run it from the repository root:
+
+```sql
+SHOW TABLES FROM ikariam;                        -- list the tables
+DESCRIBE ikariam.player_snapshot;                -- columns and their types
+SELECT * FROM ikariam.player_snapshot LIMIT 10;  -- look at some rows
+
+-- Save a result as CSV (for R, Python or Excel); the file lands in the repository root
+COPY (SELECT country_code, server, count(*) AS players
+      FROM ikariam.player_snapshot GROUP BY ALL) TO 'players_per_server.csv';
+
+.quit                                            -- leave the session
+```
+
+`SHOW TABLES` also lists many `raw_*` tables (`raw_avatar_de`, `raw_city_de`, …). They hold the unprocessed game data per country; for analysis use the six tables under [Primary Tables](#primary-tables).
+
+`.read ikariam/sql/explore/00_setup.sql` adds short names without the `ikariam.` prefix (`player_snapshot`, `city_snapshot`, `island_snapshot`, `donations`, `construction`) and the views `latest_player` and `latest_donations`. The example queries in this README use these short names, so run that line first.
+
+What each table and column means is listed in the [data catalog](https://data.systems-sciences.uni-graz.at/catalog/). It needs a login.
+
+Example analyses to start from, each runnable with `just db -f`:
+
+| File | Content |
+|---|---|
+| `sql/explore/01_coverage.sql` | Servers, snapshot days and players per server |
+| `sql/explore/02_players.sql` | Player profiles on each server's latest snapshot |
+| `sql/explore/03_donations.sql` | How concentrated donations are, and where they go |
+| `sql/explore/04_construction.sql` | Most built building types and construction spending per month (about 30 s) |
+| `sql/explore/05_retention.sql` | How many players of a server's first snapshot are still there on the last |
+
+### From Python or R
+
+The Python package [`sywi-duckdb`](../libs/sywi_duckdb/README.md) reads the same `.env.local` and attaches the tables the same way (`ikariam.player_snapshot`). There is also an R package, [`sywi.duckdb`](../libs/sywi.duckdb/README.md), but it is still untested, and it does not yet understand the `ikariam=` form of `LANCE_REMOTE_URI` shown above.
 
 ## Primary Tables
 
@@ -23,22 +82,6 @@ registered earlier are admin or test accounts; this removes 122 of 205,316 accou
 are in `data/raw/ikariam/server_starts.csv`, taken from the sheet `Servers` in
 [`docs/snapshots_verification.xlsx`](docs/snapshots_verification.xlsx). AR 11 is taken as 10:00 UTC
 (issue I08 in that workbook). The run fails if a server in the data has no start time.
-
-## Running the Pipeline
-
-The job `ikariam_full_pipeline` runs every asset in dependency order, ending with the LanceDB export. In the Dagster UI it is under **Jobs**. The export deletes and rewrites the database at the output location below.
-
-## Output Location
-
-The tables are written to LanceDB. By default that is `ikariam/output/ikariam.lancedb`.
-Set `IKARIAM_LANCEDB_PATH` to write somewhere else, either a local directory or an
-object-store URI such as `s3://ikariam/ikariam.lancedb`. For S3, LanceDB takes the
-endpoint and credentials from the standard `AWS_*` variables (`AWS_ENDPOINT`,
-`AWS_REGION`, `AWS_ALLOW_HTTP`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`). In
-production the output goes to the `ikariam` bucket on SeaweedFS.
-
-Query the S3 copy with the DuckDB 2.0 CLI using the files in `sql/explore/`
-(`./run.sh 02_players.sql`).
 
 ## Data Denormalization & Normalization Philosophy
 
@@ -156,9 +199,9 @@ for analysis on the five long-running servers, and with caution on AE and BR.
 A row with no buildings has no value to date; its coverage reads 1.0 and says
 nothing, so exclude these rows (`building_base_cost_total = 0`) when averaging.
 
-## Reconstructing Dropped Summary and Latest Tables
+## Useful Queries
 
-To minimize storage and pipeline maintenance, we do not materialize the obsolete static "latest" or "summary" tables in LanceDB. Instead, they can be easily computed dynamically using standard SQL queries in DuckDB (or any SQL engine) from the primary tables.
+The latest row per player, city or island and summaries over all snapshots are not stored as tables. These queries compute them from the primary tables (run `.read ikariam/sql/explore/00_setup.sql` first for the short table names).
 
 Player, city and island IDs are only unique within a server: the same ID can appear on several servers, so these queries always include `server` in their keys.
 
@@ -188,7 +231,7 @@ SELECT * FROM (
 ) WHERE rn = 1;
 ```
 
-### 3. city_latest (previously player_island_latest at city level)
+### 3. city_latest
 Get the latest snapshot row for each city. A city can change island between snapshots, so the island is not part of the key.
 ```sql
 SELECT * FROM (
@@ -201,7 +244,7 @@ SELECT * FROM (
 ) WHERE rn = 1;
 ```
 
-### 4. player_island_latest (Aggregated to Player-Island level)
+### 4. player_island_latest
 To reconstruct the player-island level latest states (summing population/buildings/resources across a player's cities on that island, and taking the maximum of their island-level donations):
 ```sql
 WITH latest_cities AS (
@@ -294,3 +337,18 @@ GROUP BY country_code, server, island_id;
 How the raw dumps in `data/raw/ikariam/` came about (dumps, MySQL, DuckDB, parquet), which server and
 date each snapshot has, and what the raw data still contains: see
 [`docs/raw_data_to_parquet.md`](docs/raw_data_to_parquet.md).
+
+## For Pipeline Developers
+
+### Running the Pipeline
+
+The job `ikariam_full_pipeline` runs every asset in dependency order, ending with the LanceDB export. In the Dagster UI it is under **Jobs**. The export deletes and rewrites the database at the output location below.
+
+### Output Location
+
+The tables are written to LanceDB. By default that is `ikariam/output/ikariam.lancedb`.
+Set `IKARIAM_LANCEDB_PATH` to write somewhere else, either a local directory or an
+object-store URI such as `s3://ikariam/ikariam.lancedb`. For S3, LanceDB takes the
+endpoint and credentials from the standard `AWS_*` variables (`AWS_ENDPOINT`,
+`AWS_REGION`, `AWS_ALLOW_HTTP`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`). In
+production the output goes to the `ikariam` bucket on SeaweedFS.
