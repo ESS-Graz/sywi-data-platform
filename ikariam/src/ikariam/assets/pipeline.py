@@ -40,6 +40,9 @@ from ikariam.processing.transforms.player_duration import (
 
 RAW_GROUP = "ikariam_raw"
 TRANSFORM_GROUP = "ikariam_transforms"
+# Groups are UI labels and must run in the order listed here. What gets published is
+# set by public_tables in ikariam_lancedb: this group plus the two building event
+# tables, which sit in the transform group because city_construction reads them.
 PUBLIC_GROUP = "ikariam_public"
 EXPORT_GROUP = "ikariam_export"
 
@@ -182,7 +185,7 @@ def city_enriched(
     return df
 
 
-@asset(group_name=PUBLIC_GROUP)
+@asset(group_name=TRANSFORM_GROUP)
 def building_construction_event(
     context: AssetExecutionContext,
     city_enriched: pl.DataFrame,
@@ -200,7 +203,7 @@ def building_construction_event(
     return df
 
 
-@asset(group_name=PUBLIC_GROUP)
+@asset(group_name=TRANSFORM_GROUP)
 def building_demolition_event(
     context: AssetExecutionContext,
     city_enriched: pl.DataFrame,
