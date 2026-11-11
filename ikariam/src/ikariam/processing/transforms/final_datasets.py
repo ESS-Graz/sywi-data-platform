@@ -16,20 +16,20 @@ import polars as pl
 
 from .construction_events import (
     CONSTRUCTION_SUM_COLUMNS,
-    observed_construction_coverage_expr,
+    publish_preexisting_share,
 )
 
 
 RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine")
 RESOURCE_COLUMNS: tuple[str, ...] = (
-    tuple(f"building_base_cost_{resource}" for resource in RESOURCE_NAMES)
-    + ("building_base_cost_total",)
-    + tuple(f"estimated_building_cost_{resource}" for resource in RESOURCE_NAMES)
-    + ("estimated_building_cost_total",)
+    tuple(f"standing_cost_undiscounted_{resource}" for resource in RESOURCE_NAMES)
+    + ("standing_cost_undiscounted_total",)
+    + tuple(f"standing_cost_today_{resource}" for resource in RESOURCE_NAMES)
+    + ("standing_cost_today_total",)
     + tuple(f"{resource}_stored" for resource in RESOURCE_NAMES)
     + ("resources_stored_total",)
-    + tuple(f"estimated_{resource}_resource_value" for resource in RESOURCE_NAMES)
-    + ("estimated_resource_value_total",)
+    + tuple(f"{resource}_tied_up" for resource in RESOURCE_NAMES)
+    + ("resources_tied_up_total",)
     + CONSTRUCTION_SUM_COLUMNS
 )
 
@@ -102,7 +102,7 @@ def build_player_snapshot_table(
         ]
     )
 
-    base = base.with_columns(observed_construction_coverage_expr())
+    base = publish_preexisting_share(base)
 
     return base.sort(["player_id", "snapshot_date", "snapshot_id"])
 
@@ -136,7 +136,7 @@ def build_city_snapshot_table(
         "estimated_research_cost_factor_source",
         "research_evidence_tier",
         *(f"{resource}_reduction_building_level" for resource in RESOURCE_NAMES),
-        *(f"estimated_{resource}_cost_factor" for resource in RESOURCE_NAMES),
+        *(f"cost_factor_today_{resource}" for resource in RESOURCE_NAMES),
         *RESOURCE_COLUMNS,
         pl.col("Geblev").alias("building_levels_total"),
     )
@@ -170,12 +170,13 @@ def build_city_snapshot_table(
             for c, dt in zip(base.columns, base.dtypes, strict=True)
             if dt.is_numeric()
             and c != "estimated_research_cost_factor"
-            and not c.startswith("estimated_building_cost_")
+            and not c.startswith("standing_cost_today_")
+            and not c.startswith("cost_factor_today_")
             and not c.startswith("estimated_")
         ]
     )
 
-    base = base.with_columns(observed_construction_coverage_expr())
+    base = publish_preexisting_share(base)
 
     return base.sort(["city_id", "snapshot_date", "snapshot_id"])
 
@@ -252,6 +253,6 @@ def build_island_snapshot_table(
         ]
     )
 
-    base = base.with_columns(observed_construction_coverage_expr())
+    base = publish_preexisting_share(base)
 
     return base.sort(["island_id", "snapshot_date", "snapshot_id"])

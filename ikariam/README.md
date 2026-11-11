@@ -117,79 +117,96 @@ This table keeps donation facts, denominators, intensity ratios, composition sha
 
 It intentionally does not reproduce legacy database-wide broadcast constants such as total server donations copied onto every row. Those values are report summaries, not row-level analytics.
 
-## Account Age and Building Costs
+## Account Age
 
 `account_age_days` is calculated independently for every snapshot as the
 calendar-day difference between `snapshot_date` and the player's UTC
-registration date. Building costs are intentionally split into distinct
-concepts:
+registration date.
 
-- `building_base_cost_*` is the undiscounted cumulative lookup cost of the
-  buildings visible in that snapshot. This includes the town hall, whose level
-  is the city's own `level` column rather than one of the 17 numbered building
-  slots; `building_levels_total` counts it too.
-- `estimated_building_cost_*` applies the player-snapshot research factor
-  inferred from age and cumulative building evidence.
-- `*_stored` remains the observed inventory, while
-  `estimated_*_resource_value` combines that inventory with the estimated
-  building cost.
+## Building Costs
 
-The estimate is not historical expenditure. Use
-`estimated_research_cost_factor`, `estimated_research_cost_factor_source`, and
-`research_evidence_tier` to identify how it was inferred.
+All cost columns are **estimates**: the data shows which buildings stand, not
+what was paid. The cost columns differ in only two ways: **which levels** they
+count and **which discount** they apply. The names follow the pattern
+`<which levels>_cost_<which discount>_<resource>`:
 
-## Vintage-Priced Construction
+| | Full price, no discount (`undiscounted`) | Discount at this snapshot (`today`) | Discount when the level was built (`at_build`) |
+|---|---|---|---|
+| **Levels standing now** (`standing`) | `standing_cost_undiscounted_*` | `standing_cost_today_*` | `standing_cost_at_build_*` |
+| **Every level ever built** (`ever_built`) | – | – | `ever_built_cost_at_build_*` |
 
-`estimated_building_cost_*` applies one *current* factor to every level, which
-credits today's discounts to buildings raised before those discounts existed.
-Two further columns price each level at the discount state active when it was
-actually built, reconstructed from consecutive snapshots:
+- `standing_cost_undiscounted_*`: what would the standing buildings cost at full
+  price? Includes the town hall, whose level is the city's own `level` column
+  rather than one of the 17 numbered building slots; `building_levels_total`
+  counts it too.
+- `standing_cost_today_*`: the same buildings at this snapshot's discount
+  (`cost_factor_today_*`: player research plus the city's reduction
+  buildings). Old buildings get today's discount although it did not exist when
+  they were built, so this understates the real cost.
+- `standing_cost_at_build_*`: what did the standing buildings cost, each level
+  at the discount the city had when it was built? The best estimate of the real
+  cost. Check `preexisting_share` before using it.
+- `ever_built_cost_at_build_*`: what did every level ever built cost, including
+  levels later demolished? It never decreases. The gap to
+  `standing_cost_at_build_*` is the value lost to demolition.
+- `*_tied_up`: how much of a resource is bound in the city:
+  `standing_cost_today_*` plus `*_stored`. It is neither income nor total
+  spending.
 
-- `historical_building_cost_*` — paid for the levels **still standing**.
-- `lifetime_construction_spend_*` — paid for **every level ever built**,
-  including levels later demolished, so it never decreases.
+Research is not in the data either. `estimated_research_cost_factor`,
+`estimated_research_cost_factor_source` and `research_evidence_tier` show how
+the research part of the discount was inferred.
 
-A level that appears between two snapshots is priced at the midpoint of the
-city's factor at those two observations; the exact moment within the interval is
-not observable. Standing value is accounted for as construction minus
-demolition, so a later rebuild never changes an earlier snapshot's value.
+All cost columns aggregate by plain summation at every grain.
 
-Levels already present the first time a building is seen cannot be dated. They
-are priced at that first observation's factor and reported separately via
-`opening_stock_base_cost_total`.
+### How `at_build` is calculated
 
-Both measures aggregate by plain summation at every grain. Coverage is a ratio
-and is recomputed per row rather than summed.
+`building_construction_event` follows every building position of every city
+across snapshots. A level that is missing at one snapshot and present at the
+next was built in between. It is priced at the midpoint of the city's
+`cost_factor_today_*` at those two snapshots (`cost_factor_at_build_*`); the
+exact moment within the interval is not observable. A level that disappears
+becomes a row in `building_demolition_event`, written off at the cost it was
+built for. So:
 
-### Coverage: how far the historical prices can be trusted
+    standing_cost_at_build  = construction events - demolition events
+    ever_built_cost_at_build = construction events
 
-`observed_construction_coverage` is the share of a row's building value that
-could be dated to an interval between two snapshots:
+A later rebuild therefore never changes an earlier snapshot's value.
 
-    coverage = 1 - opening_stock_base_cost_total / building_base_cost_total
+### `preexisting_share`: how far `at_build` can be trusted
 
-Value means undiscounted building cost, so expensive levels count for more than
-cheap ones. The lower the coverage, the more the historical measures rest on the
-first-observation assumption above.
+Levels already standing the first time a building is seen are **preexisting**
+(`is_preexisting` in the event tables). Their build time is unknown, so their
+`at_build` cost uses the discount of that first observation, which is a guess.
+`preexisting_share` is the share of `standing_cost_undiscounted_total` that is
+preexisting:
 
-Vintage pricing needs several snapshots of a server, so coverage is only
-meaningful where those exist. Value-weighted over all rows of the current data:
+- **0**: every standing level was built while observed, so `at_build` is reliable.
+- **1**: every standing level was already there, so `at_build` is a guess.
+- **NULL**: nothing stands; `avg()` skips these rows on its own.
 
-| Servers | Snapshots | Coverage |
+Expensive levels count for more than cheap ones. To combine rows (for example
+all cities of a server), weight by the undiscounted cost instead of averaging
+the shares:
+
+```sql
+sum(preexisting_share * standing_cost_undiscounted_total)
+    / sum(standing_cost_undiscounted_total)
+```
+
+Value-weighted over all rows of the current data:
+
+| Servers | Snapshots | Preexisting share |
 |---|---|---|
-| DE 23, EN 22, FR 21, GR 19, TR 25 | 36-37 | 97.2% |
-| AE 18, BR 27 | 6, the first about six months after the server's start | 36.6% |
-| AR 11, RU 17, US 19 and the ten comparison servers | 1 | 0% |
+| DE 23, EN 22, FR 21, GR 19, TR 25 | 36-37 | 2.8% |
+| AE 18, BR 27 | 6, the first about six months after the server's start | 63.4% |
+| AR 11, RU 17, US 19 and the ten comparison servers | 1 | 100% |
 
-With a single snapshot, no level can be dated. On those 13 servers the vintage
-pricing does not really work: every level is priced at the one observed factor,
-so `historical_building_cost_*` adds no information beyond
-`estimated_building_cost_*`. Do not read their 0% as a data error, and do not
-include them in a statement about overall coverage. Use the historical measures
-for analysis on the five long-running servers, and with caution on AE and BR.
-
-A row with no buildings has no value to date; its coverage reads 1.0 and says
-nothing, so exclude these rows (`building_base_cost_total = 0`) when averaging.
+With a single snapshot no level can be dated, so on those 13 servers
+`standing_cost_at_build_*` equals `standing_cost_today_*`. Their 100% is not a
+data error. Use the `at_build` columns on the five long-running servers, and
+with caution on AE and BR.
 
 ## Useful Queries
 
@@ -255,11 +272,11 @@ SELECT
     player_id,
     island_id,
     SUM(population_total) AS population_total,
-    SUM(building_base_cost_wood) AS building_base_cost_wood,
-    SUM(building_base_cost_total) AS building_base_cost_total,
-    SUM(estimated_building_cost_total) AS estimated_building_cost_total,
+    SUM(standing_cost_undiscounted_wood) AS standing_cost_undiscounted_wood,
+    SUM(standing_cost_undiscounted_total) AS standing_cost_undiscounted_total,
+    SUM(standing_cost_today_total) AS standing_cost_today_total,
     SUM(resources_stored_total) AS resources_stored_total,
-    SUM(estimated_resource_value_total) AS estimated_resource_value_total,
+    SUM(resources_tied_up_total) AS resources_tied_up_total,
     SUM(building_levels_total) AS building_levels_total,
     -- Island columns are the same on every city of the island
     ANY_VALUE(wonder_type_id) AS wonder_type_id,

@@ -68,8 +68,8 @@ def compute_city_metrics(
     # The building-cost transform already provides cumulative city totals.
     df = df.with_columns(
         pl.sum_horizontal(
-            [pl.col(f"building_base_cost_{resource}") for resource in RESOURCE_NAMES]
-        ).alias("building_base_cost_total")
+            [pl.col(f"standing_cost_undiscounted_{resource}") for resource in RESOURCE_NAMES]
+        ).alias("standing_cost_undiscounted_total")
     )
 
     # Stored resource totals depend only on the raw city inventory columns.
@@ -105,7 +105,7 @@ def compute_city_metrics(
         (1 - pl.col("estimated_research_cost_factor")) * 100
     ).round(0)
 
-    factor_columns = [f"estimated_{resource}_cost_factor" for resource in RESOURCE_NAMES]
+    factor_columns = [f"cost_factor_today_{resource}" for resource in RESOURCE_NAMES]
 
     df = df.with_columns(
         [
@@ -116,7 +116,7 @@ def compute_city_metrics(
                     - pl.col(REDUCTION_LEVEL_COLUMNS[resource])
                 )
                 / 100
-            ).alias(f"estimated_{resource}_cost_factor")
+            ).alias(f"cost_factor_today_{resource}")
             for resource in RESOURCE_NAMES
         ]
     )
@@ -141,17 +141,17 @@ def compute_city_metrics(
     df = df.with_columns(
         [
             (
-                pl.col(f"building_base_cost_{resource}")
-                * pl.col(f"estimated_{resource}_cost_factor")
-            ).alias(f"estimated_building_cost_{resource}")
+                pl.col(f"standing_cost_undiscounted_{resource}")
+                * pl.col(f"cost_factor_today_{resource}")
+            ).alias(f"standing_cost_today_{resource}")
             for resource in RESOURCE_NAMES
         ]
     )
 
     df = df.with_columns(
         pl.sum_horizontal(
-            [pl.col(f"estimated_building_cost_{resource}") for resource in RESOURCE_NAMES]
-        ).alias("estimated_building_cost_total")
+            [pl.col(f"standing_cost_today_{resource}") for resource in RESOURCE_NAMES]
+        ).alias("standing_cost_today_total")
     )
 
     # Estimated resource value combines estimated building costs and observed
@@ -159,17 +159,17 @@ def compute_city_metrics(
     df = df.with_columns(
         [
             (
-                pl.col(f"estimated_building_cost_{resource}")
+                pl.col(f"standing_cost_today_{resource}")
                 + pl.col(f"{resource}_stored")
-            ).alias(f"estimated_{resource}_resource_value")
+            ).alias(f"{resource}_tied_up")
             for resource in RESOURCE_NAMES
         ]
     )
 
     df = df.with_columns(
         pl.sum_horizontal(
-            [pl.col(f"estimated_{resource}_resource_value") for resource in RESOURCE_NAMES]
-        ).alias("estimated_resource_value_total")
+            [pl.col(f"{resource}_tied_up") for resource in RESOURCE_NAMES]
+        ).alias("resources_tied_up_total")
     )
 
     # --- Population and building levels. ---

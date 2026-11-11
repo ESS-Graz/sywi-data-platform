@@ -18,14 +18,14 @@ from .donations import split_donation_types
 
 RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine")
 RESOURCE_COLUMNS: tuple[str, ...] = (
-    tuple(f"building_base_cost_{resource}" for resource in RESOURCE_NAMES)
-    + ("building_base_cost_total",)
-    + tuple(f"estimated_building_cost_{resource}" for resource in RESOURCE_NAMES)
-    + ("estimated_building_cost_total",)
+    tuple(f"standing_cost_undiscounted_{resource}" for resource in RESOURCE_NAMES)
+    + ("standing_cost_undiscounted_total",)
+    + tuple(f"standing_cost_today_{resource}" for resource in RESOURCE_NAMES)
+    + ("standing_cost_today_total",)
     + tuple(f"{resource}_stored" for resource in RESOURCE_NAMES)
     + ("resources_stored_total",)
-    + tuple(f"estimated_{resource}_resource_value" for resource in RESOURCE_NAMES)
-    + ("estimated_resource_value_total",)
+    + tuple(f"{resource}_tied_up" for resource in RESOURCE_NAMES)
+    + ("resources_tied_up_total",)
     + CONSTRUCTION_SUM_COLUMNS
 )
 

@@ -17,20 +17,20 @@ import polars as pl
 from ..utils import safe_divide, safe_percent
 from .construction_events import (
     CONSTRUCTION_SUM_COLUMNS,
-    observed_construction_coverage_expr,
+    publish_preexisting_share,
 )
 
 
 RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine")
 RESOURCE_COLUMNS: tuple[str, ...] = (
-    tuple(f"building_base_cost_{resource}" for resource in RESOURCE_NAMES)
-    + ("building_base_cost_total",)
-    + tuple(f"estimated_building_cost_{resource}" for resource in RESOURCE_NAMES)
-    + ("estimated_building_cost_total",)
+    tuple(f"standing_cost_undiscounted_{resource}" for resource in RESOURCE_NAMES)
+    + ("standing_cost_undiscounted_total",)
+    + tuple(f"standing_cost_today_{resource}" for resource in RESOURCE_NAMES)
+    + ("standing_cost_today_total",)
     + tuple(f"{resource}_stored" for resource in RESOURCE_NAMES)
     + ("resources_stored_total",)
-    + tuple(f"estimated_{resource}_resource_value" for resource in RESOURCE_NAMES)
-    + ("estimated_resource_value_total",)
+    + tuple(f"{resource}_tied_up" for resource in RESOURCE_NAMES)
+    + ("resources_tied_up_total",)
     + CONSTRUCTION_SUM_COLUMNS
 )
 
@@ -113,7 +113,7 @@ def build_donation_analytics_player_island_snapshot(
     ]
 
     result = result.with_columns(pl.col(column).fill_null(0) for column in numeric_fill_columns)
-    result = result.with_columns(observed_construction_coverage_expr())
+    result = publish_preexisting_share(result)
 
     island_keys = ["country_code", "snapshot_id", "island_id"]
 
@@ -201,34 +201,34 @@ def build_donation_analytics_player_island_snapshot(
     result = result.with_columns(
         safe_percent(
             pl.col("sawmill_donations_total") + pl.col("luxury_mine_donations_total"),
-            pl.col("estimated_wood_resource_value")
+            pl.col("wood_tied_up")
             + pl.col("sawmill_donations_total")
             + pl.col("luxury_mine_donations_total"),
-        ).alias("estimated_wood_donation_resource_share_pct"),
+        ).alias("wood_donation_tied_up_share_pct"),
         safe_percent(
             pl.col("wonder_wine_donations_allocated"),
-            pl.col("estimated_wine_resource_value")
+            pl.col("wine_tied_up")
             + pl.col("wonder_wine_donations_allocated"),
-        ).alias("estimated_wine_wonder_donation_resource_share_pct"),
+        ).alias("wine_wonder_donation_tied_up_share_pct"),
         safe_percent(
             pl.col("wonder_marble_donations_allocated"),
-            pl.col("estimated_marble_resource_value")
+            pl.col("marble_tied_up")
             + pl.col("wonder_marble_donations_allocated"),
-        ).alias("estimated_marble_wonder_donation_resource_share_pct"),
+        ).alias("marble_wonder_donation_tied_up_share_pct"),
         safe_percent(
             pl.col("wonder_crystal_donations_allocated"),
-            pl.col("estimated_crystal_resource_value")
+            pl.col("crystal_tied_up")
             + pl.col("wonder_crystal_donations_allocated"),
-        ).alias("estimated_crystal_wonder_donation_resource_share_pct"),
+        ).alias("crystal_wonder_donation_tied_up_share_pct"),
         safe_percent(
             pl.col("wonder_sulfur_donations_allocated"),
-            pl.col("estimated_sulfur_resource_value")
+            pl.col("sulfur_tied_up")
             + pl.col("wonder_sulfur_donations_allocated"),
-        ).alias("estimated_sulfur_wonder_donation_resource_share_pct"),
+        ).alias("sulfur_wonder_donation_tied_up_share_pct"),
         safe_percent(
             pl.col("donations_total"),
-            pl.col("estimated_resource_value_total") + pl.col("donations_total"),
-        ).alias("estimated_donations_resource_share_pct"),
+            pl.col("resources_tied_up_total") + pl.col("donations_total"),
+        ).alias("donations_tied_up_share_pct"),
     )
 
     return result.sort(["player_id", "island_id", "snapshot_date", "snapshot_id"])

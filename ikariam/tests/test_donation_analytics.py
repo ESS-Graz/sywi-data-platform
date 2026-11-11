@@ -45,45 +45,45 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
             "resource_workers": [4.0, 2.0],
             "tradegood_workers": [3.0, 5.0],
             "priests": [2.0, 0.0],
-            "building_base_cost_wood": [80.0, 15.0],
-            "building_base_cost_crystal": [30.0, 0.0],
-            "building_base_cost_marble": [20.0, 0.0],
-            "building_base_cost_sulfur": [40.0, 0.0],
-            "building_base_cost_wine": [10.0, 0.0],
-            "building_base_cost_total": [180.0, 15.0],
-            "estimated_building_cost_wood": [80.0, 15.0],
-            "estimated_building_cost_crystal": [30.0, 0.0],
-            "estimated_building_cost_marble": [20.0, 0.0],
-            "estimated_building_cost_sulfur": [40.0, 0.0],
-            "estimated_building_cost_wine": [10.0, 0.0],
-            "estimated_building_cost_total": [180.0, 15.0],
+            "standing_cost_undiscounted_wood": [80.0, 15.0],
+            "standing_cost_undiscounted_crystal": [30.0, 0.0],
+            "standing_cost_undiscounted_marble": [20.0, 0.0],
+            "standing_cost_undiscounted_sulfur": [40.0, 0.0],
+            "standing_cost_undiscounted_wine": [10.0, 0.0],
+            "standing_cost_undiscounted_total": [180.0, 15.0],
+            "standing_cost_today_wood": [80.0, 15.0],
+            "standing_cost_today_crystal": [30.0, 0.0],
+            "standing_cost_today_marble": [20.0, 0.0],
+            "standing_cost_today_sulfur": [40.0, 0.0],
+            "standing_cost_today_wine": [10.0, 0.0],
+            "standing_cost_today_total": [180.0, 15.0],
             "wood_stored": [20.0, 5.0],
             "crystal_stored": [10.0, 5.0],
             "marble_stored": [10.0, 5.0],
             "sulfur_stored": [10.0, 5.0],
             "wine_stored": [10.0, 5.0],
             "resources_stored_total": [60.0, 25.0],
-            "estimated_wood_resource_value": [100.0, 20.0],
-            "estimated_crystal_resource_value": [40.0, 5.0],
-            "estimated_marble_resource_value": [30.0, 5.0],
-            "estimated_sulfur_resource_value": [50.0, 5.0],
-            "estimated_wine_resource_value": [20.0, 5.0],
-            "estimated_resource_value_total": [240.0, 40.0],
+            "wood_tied_up": [100.0, 20.0],
+            "crystal_tied_up": [40.0, 5.0],
+            "marble_tied_up": [30.0, 5.0],
+            "sulfur_tied_up": [50.0, 5.0],
+            "wine_tied_up": [20.0, 5.0],
+            "resources_tied_up_total": [240.0, 40.0],
             # Vintage-priced construction measures; p1 is 90% of base cost with
-            # 18 of its 180 base cost undatable opening stock.
-            "historical_building_cost_wood": [72.0, 13.5],
-            "historical_building_cost_crystal": [27.0, 0.0],
-            "historical_building_cost_marble": [18.0, 0.0],
-            "historical_building_cost_sulfur": [36.0, 0.0],
-            "historical_building_cost_wine": [9.0, 0.0],
-            "historical_building_cost_total": [162.0, 13.5],
-            "lifetime_construction_spend_wood": [75.0, 13.5],
-            "lifetime_construction_spend_crystal": [27.0, 0.0],
-            "lifetime_construction_spend_marble": [18.0, 0.0],
-            "lifetime_construction_spend_sulfur": [36.0, 0.0],
-            "lifetime_construction_spend_wine": [9.0, 0.0],
-            "lifetime_construction_spend_total": [165.0, 13.5],
-            "opening_stock_base_cost_total": [18.0, 0.0],
+            # 18 of its 180 undiscounted cost preexisting.
+            "standing_cost_at_build_wood": [72.0, 13.5],
+            "standing_cost_at_build_crystal": [27.0, 0.0],
+            "standing_cost_at_build_marble": [18.0, 0.0],
+            "standing_cost_at_build_sulfur": [36.0, 0.0],
+            "standing_cost_at_build_wine": [9.0, 0.0],
+            "standing_cost_at_build_total": [162.0, 13.5],
+            "ever_built_cost_at_build_wood": [75.0, 13.5],
+            "ever_built_cost_at_build_crystal": [27.0, 0.0],
+            "ever_built_cost_at_build_marble": [18.0, 0.0],
+            "ever_built_cost_at_build_sulfur": [36.0, 0.0],
+            "ever_built_cost_at_build_wine": [9.0, 0.0],
+            "ever_built_cost_at_build_total": [165.0, 13.5],
+            "preexisting_cost_undiscounted_total": [18.0, 0.0],
         }
     )
 
@@ -117,10 +117,11 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
     assert row["island_donations_total"] == 150.0
     assert row["island_avg_donations_per_player"] == 75.0
     assert row["island_peer_donations_avg"] == 50.0
-    assert row["historical_building_cost_total"] == 162.0
-    assert row["lifetime_construction_spend_total"] == 165.0
+    assert row["standing_cost_at_build_total"] == 162.0
+    assert row["ever_built_cost_at_build_total"] == 165.0
     # Recomputed from this row's own totals, not carried through aggregation.
-    assert row["observed_construction_coverage"] == pytest.approx(1 - 18 / 180)
+    assert row["preexisting_share"] == pytest.approx(18 / 180)
+    assert "preexisting_cost_undiscounted_total" not in result.columns
     assert row["donations_minus_island_peer_avg"] == 50.0
     assert row["sawmill_donation_share_pct"] == 40.0
     assert row["luxury_mine_donation_share_pct"] == 30.0
@@ -135,11 +136,11 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
     assert row["estimated_research_cost_factor_source"] == "age_heuristic"
     assert row["research_evidence_tier"] == "none"
 
-    assert row["estimated_wood_donation_resource_share_pct"] == pytest.approx(
+    assert row["wood_donation_tied_up_share_pct"] == pytest.approx(
         70.0 / 170.0 * 100.0
     )
 
-    assert row["estimated_donations_resource_share_pct"] == pytest.approx(
+    assert row["donations_tied_up_share_pct"] == pytest.approx(
         100.0 / 340.0 * 100.0
     )
 

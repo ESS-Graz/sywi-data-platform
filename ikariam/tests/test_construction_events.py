@@ -11,6 +11,7 @@ from ikariam.processing.transforms.construction_events import (
     build_demolition_events,
     build_level_cost_deltas,
     build_slot_panel,
+    publish_preexisting_share,
     summarize_city_construction,
 )
 
@@ -68,7 +69,7 @@ def _city(*snapshots: dict[str, object]) -> pl.DataFrame:
             row[f"p{position}l"] = building_level
 
         for resource in RESOURCE_NAMES:
-            row[f"estimated_{resource}_cost_factor"] = snapshot.get("factor", 1.0)
+            row[f"cost_factor_today_{resource}"] = snapshot.get("factor", 1.0)
 
         rows.append(row)
 
@@ -92,13 +93,13 @@ def test_levels_are_priced_at_the_interval_midpoint_factor() -> None:
     events, _, _ = _events(city)
 
     assert events.sort("building_level").select(
-        "building_level", "is_opening_stock", "factor_wood", "paid_cost_wood"
+        "building_level", "is_preexisting", "cost_factor_at_build_wood", "cost_at_build_wood"
     ).to_dicts() == [
         # Level 1 was already there: dated to first sighting, factor 1.0.
-        {"building_level": 1, "is_opening_stock": True, "factor_wood": 1.0, "paid_cost_wood": 100.0},
+        {"building_level": 1, "is_preexisting": True, "cost_factor_at_build_wood": 1.0, "cost_at_build_wood": 100.0},
         # Levels 2 and 3 appeared between s1 and s2: midpoint of 1.0 and 0.8.
-        {"building_level": 2, "is_opening_stock": False, "factor_wood": 0.9, "paid_cost_wood": 180.0},
-        {"building_level": 3, "is_opening_stock": False, "factor_wood": 0.9, "paid_cost_wood": 270.0},
+        {"building_level": 2, "is_preexisting": False, "cost_factor_at_build_wood": 0.9, "cost_at_build_wood": 180.0},
+        {"building_level": 3, "is_preexisting": False, "cost_factor_at_build_wood": 0.9, "cost_at_build_wood": 270.0},
     ]
 
 
@@ -112,8 +113,8 @@ def test_standing_value_and_lifetime_spend_track_construction() -> None:
     built, removed, panel = _events(city)
     summary = summarize_city_construction(panel, built, removed).sort("snapshot_date")
 
-    assert summary["historical_building_cost_wood"].to_list() == [100.0, 550.0, 550.0]
-    assert summary["lifetime_construction_spend_wood"].to_list() == [100.0, 550.0, 550.0]
+    assert summary["standing_cost_at_build_wood"].to_list() == [100.0, 550.0, 550.0]
+    assert summary["ever_built_cost_at_build_wood"].to_list() == [100.0, 550.0, 550.0]
 
 
 def test_demolition_lowers_standing_value_but_not_lifetime_spend() -> None:
@@ -126,8 +127,8 @@ def test_demolition_lowers_standing_value_but_not_lifetime_spend() -> None:
     summary = summarize_city_construction(panel, built, removed).sort("snapshot_date")
 
     # Five levels at 10 each were paid for; only two still stand at s2.
-    assert summary["historical_building_cost_wood"].to_list() == [50.0, 20.0]
-    assert summary["lifetime_construction_spend_wood"].to_list() == [50.0, 50.0]
+    assert summary["standing_cost_at_build_wood"].to_list() == [50.0, 20.0]
+    assert summary["ever_built_cost_at_build_wood"].to_list() == [50.0, 50.0]
 
 
 def test_rebuilt_level_is_valued_at_its_latest_vintage() -> None:
@@ -142,8 +143,8 @@ def test_rebuilt_level_is_valued_at_its_latest_vintage() -> None:
 
     # Level 2 is rebuilt between s2 and s3 at a midpoint factor of 0.5,
     # so it is worth 5 rather than the 10 it cost the first time.
-    assert summary["historical_building_cost_wood"].to_list() == [20.0, 10.0, 15.0]
-    assert summary["lifetime_construction_spend_wood"].to_list() == [20.0, 20.0, 25.0]
+    assert summary["standing_cost_at_build_wood"].to_list() == [20.0, 10.0, 15.0]
+    assert summary["ever_built_cost_at_build_wood"].to_list() == [20.0, 20.0, 25.0]
 
 
 def test_replacing_a_building_restarts_its_levels() -> None:
@@ -156,12 +157,12 @@ def test_replacing_a_building_restarts_its_levels() -> None:
 
     replacement = built.filter(pl.col("building_type") == 9).sort("building_level")
     assert replacement["building_level"].to_list() == [1, 2, 3]
-    assert not any(replacement["is_opening_stock"].to_list())
+    assert not any(replacement["is_preexisting"].to_list())
 
     summary = summarize_city_construction(panel, built, removed).sort("snapshot_date")
     # Only the new building stands at s2; the replaced one is gone.
-    assert summary["historical_building_cost_wood"].to_list() == [300.0, 30.0]
-    assert summary["lifetime_construction_spend_wood"].to_list() == [300.0, 330.0]
+    assert summary["standing_cost_at_build_wood"].to_list() == [300.0, 30.0]
+    assert summary["ever_built_cost_at_build_wood"].to_list() == [300.0, 330.0]
 
 
 def test_town_hall_levels_are_dated_like_any_other_building() -> None:
@@ -177,7 +178,7 @@ def test_town_hall_levels_are_dated_like_any_other_building() -> None:
     assert town_hall["position"].unique().to_list() == [0]
 
 
-def test_coverage_reports_the_undatable_share() -> None:
+def test_preexisting_share_reports_the_undatable_share() -> None:
     city = _city(
         {"snapshot_id": "s1", "slots": {1: (3, 1)}, "factor": 1.0},
         {"snapshot_id": "s2", "slots": {1: (3, 3)}, "factor": 1.0},
@@ -186,9 +187,24 @@ def test_coverage_reports_the_undatable_share() -> None:
     built, removed, panel = _events(city)
     summary = summarize_city_construction(panel, built, removed).sort("snapshot_date")
 
-    # At s1 everything is opening stock; at s2 only 100 of 600 base cost is.
-    assert summary["observed_construction_coverage"].to_list() == [0.0, pytest.approx(1 - 100 / 600)]
-    assert summary["opening_stock_base_cost_total"].to_list() == [100.0, 100.0]
+    # At s1 everything is preexisting; at s2 only 100 of 600 undiscounted cost is.
+    assert summary["preexisting_share"].to_list() == [1.0, pytest.approx(100 / 600)]
+    assert summary["preexisting_cost_undiscounted_total"].to_list() == [100.0, 100.0]
+
+
+def test_published_preexisting_share_is_null_without_buildings_and_drops_its_total() -> None:
+    frame = pl.DataFrame(
+        {
+            "standing_cost_undiscounted_total": [600.0, 0.0],
+            "preexisting_cost_undiscounted_total": [150.0, 0.0],
+        }
+    )
+
+    published = publish_preexisting_share(frame)
+
+    # A city without buildings has no share; it must not read as 0 or 1.
+    assert published["preexisting_share"].to_list() == [0.25, None]
+    assert "preexisting_cost_undiscounted_total" not in published.columns
 
 
 def test_non_contiguous_cost_levels_raise() -> None:
@@ -206,5 +222,5 @@ def test_missing_cost_factor_columns_raise() -> None:
 
     with pytest.raises(ValueError, match="missing cost factor columns"):
         build_construction_events(
-            panel, city.drop("estimated_wine_cost_factor"), _costs()
+            panel, city.drop("cost_factor_today_wine"), _costs()
         )

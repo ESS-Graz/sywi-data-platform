@@ -132,7 +132,7 @@ def _by_snapshot(df: pl.DataFrame, column: str) -> dict[str, object]:
 def test_colliding_city_ids_keep_separate_base_costs(enriched: pl.DataFrame) -> None:
     # DE: town hall 5 (5000) + slot 1 (100); then 7 (7000) + slot 3 (300).
     # EN: town hall 2 (2000) + slot 1 (100), unchanged in both snapshots.
-    assert _by_snapshot(enriched, "building_base_cost_wood") == {
+    assert _by_snapshot(enriched, "standing_cost_undiscounted_wood") == {
         "de_0101_20": 5100.0,
         "de_0801_20": 7300.0,
         "en_0101_20": 2100.0,
@@ -177,8 +177,8 @@ def test_de_construction_creates_no_en_events(
     events = build_construction_events(panel, enriched, costs)
     en_events = events.filter(pl.col("country_code") == "EN")
 
-    # EN never built after its first snapshot, so every EN level is opening stock.
-    assert en_events.get_column("is_opening_stock").all()
+    # EN never built after its first snapshot, so every EN level is preexisting.
+    assert en_events.get_column("is_preexisting").all()
     # DE's two post-opening levels must not appear anywhere under EN.
     assert en_events.filter(pl.col("building_level") > 2).is_empty()
 
@@ -197,12 +197,12 @@ def test_construction_measures_do_not_accumulate_across_countries(
     assert demolitions.is_empty()
     # EN stands still, so its lifetime spend is flat across both snapshots and
     # strictly below DE's.
-    lifetime = _by_snapshot(result, "lifetime_construction_spend_total")
+    lifetime = _by_snapshot(result, "ever_built_cost_at_build_total")
     assert lifetime["en_0101_20"] == lifetime["en_0801_20"]
     assert lifetime["de_0801_20"] > lifetime["de_0101_20"] > lifetime["en_0801_20"]
 
-    # Opening stock is a per-city constant and must not pick up the other server.
-    opening = _by_snapshot(result, "opening_stock_base_cost_total")
+    # The preexisting total is a per-city constant and must not pick up the other server.
+    opening = _by_snapshot(result, "preexisting_cost_undiscounted_total")
     assert opening["de_0101_20"] == opening["de_0801_20"]
     assert opening["en_0101_20"] == opening["en_0801_20"]
     assert opening["de_0101_20"] != opening["en_0101_20"]
@@ -249,6 +249,6 @@ def test_servers_of_one_country_do_not_merge(costs: pl.DataFrame) -> None:
     panel = build_slot_panel(enriched)
     events = build_construction_events(panel, enriched, costs)
 
-    # Server 1: 7 town hall + 3 slot levels. Server 2: 2 + 1, all opening stock.
+    # Server 1: 7 town hall + 3 slot levels. Server 2: 2 + 1, all preexisting.
     assert dict(events.group_by("server").len().iter_rows()) == {1: 10, 2: 3}
-    assert events.filter(pl.col("server") == 2).get_column("is_opening_stock").all()
+    assert events.filter(pl.col("server") == 2).get_column("is_preexisting").all()

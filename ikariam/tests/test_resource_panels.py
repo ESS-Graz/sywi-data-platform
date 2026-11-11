@@ -42,7 +42,7 @@ def _cities(*overrides: dict[str, object]) -> pl.DataFrame:
             "level": 7,
             **{f"p{position}t": 3 if position == 1 else 0 for position in range(1, 18)},
             **{f"p{position}l": 1 if position == 1 else 0 for position in range(1, 18)},
-            **{f"building_base_cost_{resource}": cost for resource, cost in BASE_COSTS.items()},
+            **{f"standing_cost_undiscounted_{resource}": cost for resource, cost in BASE_COSTS.items()},
             **{column: 0 for column in REDUCTION_LEVEL_COLUMNS.values()},
         }
         row.update(override)
@@ -69,19 +69,19 @@ def _player(*snapshot_ids: str, factor: float = 0.86) -> pl.DataFrame:
 
 
 def _factors(row: dict[str, object]) -> dict[str, object]:
-    return {resource: row[f"estimated_{resource}_cost_factor"] for resource in RESOURCES}
+    return {resource: row[f"cost_factor_today_{resource}"] for resource in RESOURCES}
 
 
 def test_city_metrics_keep_base_costs_and_estimates_reconcilable() -> None:
     row = compute_city_metrics(_cities(), _player()).row(0, named=True)
 
-    assert row["building_base_cost_wood"] == 100.0
-    assert row["building_base_cost_total"] == 200.0
-    assert row["estimated_building_cost_wood"] == 86.0
-    assert row["estimated_building_cost_total"] == pytest.approx(172.0)
+    assert row["standing_cost_undiscounted_wood"] == 100.0
+    assert row["standing_cost_undiscounted_total"] == 200.0
+    assert row["standing_cost_today_wood"] == 86.0
+    assert row["standing_cost_today_total"] == pytest.approx(172.0)
     assert row["resources_stored_total"] == 15.0
-    assert row["estimated_wood_resource_value"] == 91.0
-    assert row["estimated_resource_value_total"] == pytest.approx(187.0)
+    assert row["wood_tied_up"] == 91.0
+    assert row["resources_tied_up_total"] == pytest.approx(187.0)
     assert row["estimated_research_cost_factor"] == 0.86
     assert row["estimated_research_cost_factor_source"] == "age_heuristic"
     assert row["research_evidence_tier"] == "geometry_or_later"
@@ -103,7 +103,7 @@ def test_without_reducers_factors_equal_research_factor(research_factor: float) 
     assert _factors(row) == dict.fromkeys(RESOURCES, research_factor)
 
     for resource, cost in BASE_COSTS.items():
-        assert row[f"estimated_building_cost_{resource}"] == pytest.approx(cost * research_factor)
+        assert row[f"standing_cost_today_{resource}"] == pytest.approx(cost * research_factor)
 
 
 def test_carpenter_discounts_only_wood() -> None:
@@ -119,8 +119,8 @@ def test_carpenter_discounts_only_wood() -> None:
         "wine": 0.86,
     }
 
-    assert row["estimated_building_cost_wood"] == pytest.approx(66.0)
-    assert row["estimated_building_cost_marble"] == pytest.approx(25.8)
+    assert row["standing_cost_today_wood"] == pytest.approx(66.0)
+    assert row["standing_cost_today_marble"] == pytest.approx(25.8)
 
 
 def test_each_resource_uses_its_own_reducer_level() -> None:
@@ -140,22 +140,22 @@ def test_each_resource_uses_its_own_reducer_level() -> None:
     }
 
     for resource, cost in BASE_COSTS.items():
-        assert row[f"building_base_cost_{resource}"] == cost
+        assert row[f"standing_cost_undiscounted_{resource}"] == cost
         assert row[f"{resource}_stored"] == STORED[resource]
 
-        assert row[f"estimated_building_cost_{resource}"] == pytest.approx(
-            cost * row[f"estimated_{resource}_cost_factor"]
+        assert row[f"standing_cost_today_{resource}"] == pytest.approx(
+            cost * row[f"cost_factor_today_{resource}"]
         )
 
-        assert row[f"estimated_{resource}_resource_value"] == pytest.approx(
-            row[f"estimated_building_cost_{resource}"] + STORED[resource]
+        assert row[f"{resource}_tied_up"] == pytest.approx(
+            row[f"standing_cost_today_{resource}"] + STORED[resource]
         )
 
-    assert row["building_base_cost_total"] == 200.0
+    assert row["standing_cost_undiscounted_total"] == 200.0
     assert row["resources_stored_total"] == 15.0
 
-    assert row["estimated_building_cost_total"] == pytest.approx(
-        sum(row[f"estimated_building_cost_{resource}"] for resource in RESOURCES)
+    assert row["standing_cost_today_total"] == pytest.approx(
+        sum(row[f"standing_cost_today_{resource}"] for resource in RESOURCES)
     )
 
 
@@ -164,7 +164,7 @@ def test_reducer_affects_only_its_own_city() -> None:
         _cities({"wood_reduction_building_level": 20}, {}), _player()
     ).sort("id")
 
-    assert result.get_column("estimated_wood_cost_factor").to_list() == [0.66, 0.86]
+    assert result.get_column("cost_factor_today_wood").to_list() == [0.66, 0.86]
 
 
 def test_reducer_is_not_carried_across_snapshots() -> None:
@@ -177,7 +177,7 @@ def test_reducer_is_not_carried_across_snapshots() -> None:
         _player("s1", "s2", "s3"),
     ).sort("snapshot_id")
 
-    assert result.get_column("estimated_wood_cost_factor").to_list() == [0.86, 0.66, 0.86]
+    assert result.get_column("cost_factor_today_wood").to_list() == [0.86, 0.66, 0.86]
 
 
 def test_missing_research_factor_leaves_estimates_null() -> None:
@@ -185,9 +185,9 @@ def test_missing_research_factor_leaves_estimates_null() -> None:
         _cities({"wood_reduction_building_level": 20}), _player("other")
     ).row(0, named=True)
 
-    assert row["estimated_wood_cost_factor"] is None
-    assert row["estimated_building_cost_wood"] is None
-    assert row["building_base_cost_wood"] == 100.0
+    assert row["cost_factor_today_wood"] is None
+    assert row["standing_cost_today_wood"] is None
+    assert row["standing_cost_undiscounted_wood"] == 100.0
 
 
 def test_factor_outside_historical_range_raises() -> None:
@@ -206,7 +206,7 @@ def test_building_cost_and_city_metric_steps_share_reducer_columns() -> None:
     raw_city = (
         _cities()
         .drop(
-            *(f"building_base_cost_{resource}" for resource in RESOURCES),
+            *(f"standing_cost_undiscounted_{resource}" for resource in RESOURCES),
             *REDUCTION_LEVEL_COLUMNS.values(),
         )
         .with_columns(pl.lit(0).alias(f"p{position}t") for position in range(1, 18))
@@ -237,17 +237,17 @@ def test_building_cost_and_city_metric_steps_share_reducer_columns() -> None:
     )
 
     assert row["wood_reduction_building_level"] == 2
-    assert row["building_base_cost_total"] == 210.0
-    assert row["estimated_wood_cost_factor"] == 0.84
-    assert row["estimated_building_cost_wood"] == pytest.approx(92.4)
-    assert row["estimated_building_cost_total"] == pytest.approx(178.4)
+    assert row["standing_cost_undiscounted_total"] == 210.0
+    assert row["cost_factor_today_wood"] == 0.84
+    assert row["standing_cost_today_wood"] == pytest.approx(92.4)
+    assert row["standing_cost_today_total"] == pytest.approx(178.4)
 
 
 def test_town_hall_cost_and_level_flow_into_city_metrics() -> None:
     raw_city = (
         _cities()
         .drop(
-            *(f"building_base_cost_{resource}" for resource in RESOURCES),
+            *(f"standing_cost_undiscounted_{resource}" for resource in RESOURCES),
             *REDUCTION_LEVEL_COLUMNS.values(),
         )
         .with_columns(pl.lit(0).alias(f"p{position}t") for position in range(1, 18))
@@ -272,10 +272,10 @@ def test_town_hall_cost_and_level_flow_into_city_metrics() -> None:
         0, named=True
     )
 
-    assert row["building_base_cost_wood"] == 500.0
-    assert row["building_base_cost_marble"] == 250.0
-    assert row["building_base_cost_total"] == 750.0
-    assert row["estimated_building_cost_wood"] == pytest.approx(430.0)
+    assert row["standing_cost_undiscounted_wood"] == 500.0
+    assert row["standing_cost_undiscounted_marble"] == 250.0
+    assert row["standing_cost_undiscounted_total"] == 750.0
+    assert row["standing_cost_today_wood"] == pytest.approx(430.0)
     assert row["Geblev"] == 7
     assert row["Rathauslev"] == 7
 

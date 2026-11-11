@@ -19,11 +19,11 @@ import polars as pl
 POSITION_COUNT = 17
 LOOKUP_KEYS = ("building_type", "building_level")
 COST_COLUMNS: tuple[tuple[str, str], ...] = (
-    ("cost_holz", "building_base_cost_wood"),
-    ("cost_kristall", "building_base_cost_crystal"),
-    ("cost_quartz", "building_base_cost_marble"),
-    ("cost_schwefel", "building_base_cost_sulfur"),
-    ("cost_wein", "building_base_cost_wine"),
+    ("cost_holz", "standing_cost_undiscounted_wood"),
+    ("cost_kristall", "standing_cost_undiscounted_crystal"),
+    ("cost_quartz", "standing_cost_undiscounted_marble"),
+    ("cost_schwefel", "standing_cost_undiscounted_sulfur"),
+    ("cost_wein", "standing_cost_undiscounted_wine"),
 )
 
 # Raw type IDs of the city-local construction-cost reducers. These are the

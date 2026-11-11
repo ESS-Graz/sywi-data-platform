@@ -73,7 +73,7 @@ def test_add_building_base_costs_aggregates_positions() -> None:
         _costs(),
     )
 
-    cost_columns = [column for column in result.columns if column.startswith("building_base_cost_")]
+    cost_columns = [column for column in result.columns if column.startswith("standing_cost_undiscounted_")]
     assert result.select(cost_columns).row(0) == (110.0, 22.0, 33.0, 44.0, 55.0)
     assert not any(column.startswith("g1") for column in result.columns)
 
@@ -84,14 +84,14 @@ def test_zero_type_or_level_is_a_zero_cost_slot() -> None:
         _costs(),
     )
 
-    cost_columns = [column for column in result.columns if column.startswith("building_base_cost_")]
+    cost_columns = [column for column in result.columns if column.startswith("standing_cost_undiscounted_")]
     assert result.select(pl.sum_horizontal(cost_columns)).item() == 0
 
 
 def test_town_hall_level_adds_its_cost_from_the_level_column() -> None:
     result = add_building_base_costs(_city(p1t=[3], p1l=[2], level=[3]), _costs())
 
-    cost_columns = [column for column in result.columns if column.startswith("building_base_cost_")]
+    cost_columns = [column for column in result.columns if column.startswith("standing_cost_undiscounted_")]
     # Slot (3, 2) contributes 100 wood / 30 marble; town hall (1, 3) adds
     # 3000 wood / 1500 marble.
     assert result.select(cost_columns).row(0) == (3100.0, 20.0, 1530.0, 40.0, 50.0)
@@ -100,7 +100,7 @@ def test_town_hall_level_adds_its_cost_from_the_level_column() -> None:
 def test_town_hall_level_zero_adds_no_cost() -> None:
     result = add_building_base_costs(_city(p1t=[3], p1l=[2], level=[0]), _costs())
 
-    cost_columns = [column for column in result.columns if column.startswith("building_base_cost_")]
+    cost_columns = [column for column in result.columns if column.startswith("standing_cost_undiscounted_")]
     assert result.select(cost_columns).row(0) == (100.0, 20.0, 30.0, 40.0, 50.0)
 
 
@@ -160,7 +160,7 @@ def test_reducers_add_their_own_undiscounted_base_cost_only() -> None:
         _costs(),
     )
 
-    cost_columns = [column for column in result.columns if column.startswith("building_base_cost_")]
+    cost_columns = [column for column in result.columns if column.startswith("standing_cost_undiscounted_")]
     assert result.select(cost_columns).row(0) == (130.0, 20.0, 30.0, 40.0, 50.0)
 
 

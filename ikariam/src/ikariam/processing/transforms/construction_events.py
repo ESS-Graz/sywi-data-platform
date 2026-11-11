@@ -1,6 +1,6 @@
 """Price individual building levels at the discount state active when built.
 
-The cumulative ``estimated_building_cost_*`` family applies one current factor
+The cumulative ``standing_cost_today_*`` family applies one current factor
 to a player's whole building stock, which misattributes today's research and
 reduction-building discounts to levels built long before either existed.  This
 module reconstructs the individual building levels from consecutive snapshots
@@ -22,23 +22,22 @@ with a later vintage would repeat the very error this module exists to remove.
 
 Two measures come out of it:
 
-``historical_building_cost_*``
+``standing_cost_at_build_*``
     What the player paid for the levels still standing at that snapshot.
-``lifetime_construction_spend_*``
+``ever_built_cost_at_build_*``
     What the player paid for every level ever built, including levels later
     demolished.  It never decreases.
 
 Levels already present the first time a building is observed cannot be dated.
-They are priced at the factor seen at that first observation and flagged, so
-``opening_stock_base_cost_total`` and ``observed_construction_coverage`` expose
-how much of a row rests on that weaker assumption.
+They are priced at the factor seen at that first observation and flagged as
+preexisting, so ``preexisting_share`` exposes how much of a row rests on that
+weaker assumption.
 """
 
 from __future__ import annotations
 
 import polars as pl
 
-from ..utils import safe_divide
 from .building_costs import (
     COST_COLUMNS,
     POSITION_COUNT,
@@ -51,13 +50,16 @@ RESOURCE_NAMES: tuple[str, ...] = ("wood", "crystal", "marble", "sulfur", "wine"
 # Shares the base-cost transform's convention that the town hall is position 0.
 TOWN_HALL_POSITION = 0
 
+# Helper total behind preexisting_share; summed at every grain, never published.
+PREEXISTING_TOTAL = "preexisting_cost_undiscounted_total"
+
 # Columns that aggregate by plain summation at every coarser grain.
 CONSTRUCTION_SUM_COLUMNS: tuple[str, ...] = (
-    tuple(f"historical_building_cost_{resource}" for resource in RESOURCE_NAMES)
-    + ("historical_building_cost_total",)
-    + tuple(f"lifetime_construction_spend_{resource}" for resource in RESOURCE_NAMES)
-    + ("lifetime_construction_spend_total",)
-    + ("opening_stock_base_cost_total",)
+    tuple(f"standing_cost_at_build_{resource}" for resource in RESOURCE_NAMES)
+    + ("standing_cost_at_build_total",)
+    + tuple(f"ever_built_cost_at_build_{resource}" for resource in RESOURCE_NAMES)
+    + ("ever_built_cost_at_build_total",)
+    + (PREEXISTING_TOTAL,)
 )
 
 _SERIES_KEYS: list[str] = ["country_code", "server", "city_id", "position"]
@@ -75,7 +77,7 @@ _CITY_SNAPSHOT_KEYS: list[str] = [
 def _cost_source_by_resource() -> dict[str, str]:
     """Resource name -> raw lookup column, derived from the base-cost mapping."""
     return {
-        target.removeprefix("building_base_cost_"): source
+        target.removeprefix("standing_cost_undiscounted_"): source
         for source, target in COST_COLUMNS
     }
 
@@ -125,7 +127,7 @@ def build_level_cost_deltas(building_costs: pl.DataFrame) -> pl.DataFrame:
                 .shift(1)
                 .over("building_type")
                 .fill_null(0.0)
-            ).alias(f"level_cost_{resource}")
+            ).alias(f"cost_undiscounted_{resource}")
             for resource, source in sources.items()
         ),
     )
@@ -205,7 +207,7 @@ def build_construction_events(
     from scratch.
     """
     missing = sorted(
-        {f"estimated_{resource}_cost_factor" for resource in RESOURCE_NAMES}
+        {f"cost_factor_today_{resource}" for resource in RESOURCE_NAMES}
         - set(city_enriched.columns)
     )
     if missing:
@@ -216,14 +218,14 @@ def build_construction_events(
         "server",
         pl.col("id").alias("city_id"),
         "snapshot_date",
-        *(f"estimated_{resource}_cost_factor" for resource in RESOURCE_NAMES),
+        *(f"cost_factor_today_{resource}" for resource in RESOURCE_NAMES),
     )
 
     start_factors = factors.rename(
         {
             "snapshot_date": "_prev_date",
             **{
-                f"estimated_{resource}_cost_factor": f"_start_factor_{resource}"
+                f"cost_factor_today_{resource}": f"_start_factor_{resource}"
                 for resource in RESOURCE_NAMES
             },
         }
@@ -249,7 +251,7 @@ def build_construction_events(
             pl.int_ranges(
                 pl.col("_already_built") + 1, pl.col("building_level") + 1
             ).alias("_levels"),
-            pl.col("_prev_type").is_null().alias("is_opening_stock"),
+            pl.col("_prev_type").is_null().alias("is_preexisting"),
         )
         .drop("building_level")
         .explode("_levels")
@@ -263,7 +265,7 @@ def build_construction_events(
         )
     )
 
-    unpriced = events.filter(pl.col("level_cost_wood").is_null())
+    unpriced = events.filter(pl.col("cost_undiscounted_wood").is_null())
     if not unpriced.is_empty():
         sample = unpriced.select("building_type", "building_level").unique().head(5)
         raise ValueError(
@@ -274,8 +276,8 @@ def build_construction_events(
         *(
             _midpoint(
                 pl.col(f"_start_factor_{resource}"),
-                pl.col(f"estimated_{resource}_cost_factor"),
-            ).alias(f"factor_{resource}")
+                pl.col(f"cost_factor_today_{resource}"),
+            ).alias(f"cost_factor_at_build_{resource}")
             for resource in RESOURCE_NAMES
         )
     )
@@ -285,12 +287,12 @@ def build_construction_events(
         pl.col("snapshot_id").alias("built_by_snapshot_id"),
         pl.col("snapshot_date").alias("built_by_snapshot_date"),
         pl.col("_prev_date").alias("built_after_snapshot_date"),
-        "is_opening_stock",
-        *(f"factor_{resource}" for resource in RESOURCE_NAMES),
-        *(f"level_cost_{resource}" for resource in RESOURCE_NAMES),
+        "is_preexisting",
+        *(f"cost_factor_at_build_{resource}" for resource in RESOURCE_NAMES),
+        *(f"cost_undiscounted_{resource}" for resource in RESOURCE_NAMES),
         *(
-            (pl.col(f"level_cost_{resource}") * pl.col(f"factor_{resource}")).alias(
-                f"paid_cost_{resource}"
+            (pl.col(f"cost_undiscounted_{resource}") * pl.col(f"cost_factor_at_build_{resource}")).alias(
+                f"cost_at_build_{resource}"
             )
             for resource in RESOURCE_NAMES
         ),
@@ -337,9 +339,9 @@ def build_demolition_events(
             construction_events.select(
                 *_LEVEL_KEYS,
                 "built_by_snapshot_date",
-                "is_opening_stock",
-                *(f"level_cost_{resource}" for resource in RESOURCE_NAMES),
-                *(f"paid_cost_{resource}" for resource in RESOURCE_NAMES),
+                "is_preexisting",
+                *(f"cost_undiscounted_{resource}" for resource in RESOURCE_NAMES),
+                *(f"cost_at_build_{resource}" for resource in RESOURCE_NAMES),
             ),
             on=_LEVEL_KEYS,
             how="left",
@@ -366,28 +368,28 @@ def summarize_city_construction(
     construction_events: pl.DataFrame,
     demolition_events: pl.DataFrame,
 ) -> pl.DataFrame:
-    """Per city-snapshot standing value, lifetime spend, and coverage."""
-    paid = [f"paid_cost_{resource}" for resource in RESOURCE_NAMES]
+    """Per city-snapshot standing cost, ever-built cost and preexisting share."""
+    paid = [f"cost_at_build_{resource}" for resource in RESOURCE_NAMES]
 
     def _flows(frame: pl.DataFrame, date_column: str, prefix: str) -> pl.LazyFrame:
         return (
             frame.lazy()
             .with_columns(
                 pl.sum_horizontal(
-                    [f"level_cost_{resource}" for resource in RESOURCE_NAMES]
+                    [f"cost_undiscounted_{resource}" for resource in RESOURCE_NAMES]
                 ).alias("_base_total")
             )
             .with_columns(
-                pl.when(pl.col("is_opening_stock"))
+                pl.when(pl.col("is_preexisting"))
                 .then(pl.col("_base_total"))
                 .otherwise(pl.lit(0.0))
-                .alias("_opening_total")
+                .alias("_preexisting_total")
             )
             .group_by(*_CITY_KEYS, date_column)
             .agg(
                 *(pl.col(column).sum().alias(f"{prefix}{column}") for column in paid),
                 pl.col("_base_total").sum().alias(f"{prefix}base_total"),
-                pl.col("_opening_total").sum().alias(f"{prefix}opening_total"),
+                pl.col("_preexisting_total").sum().alias(f"{prefix}preexisting_total"),
             )
             .rename({date_column: "snapshot_date"})
         )
@@ -398,10 +400,10 @@ def summarize_city_construction(
     flow_columns = [
         *(f"built_{column}" for column in paid),
         "built_base_total",
-        "built_opening_total",
+        "built_preexisting_total",
         *(f"removed_{column}" for column in paid),
         "removed_base_total",
-        "removed_opening_total",
+        "removed_preexisting_total",
     ]
 
     running = (
@@ -423,74 +425,88 @@ def summarize_city_construction(
     summary = running.with_columns(
         *(
             (
-                pl.col(f"cum_built_paid_cost_{resource}")
-                - pl.col(f"cum_removed_paid_cost_{resource}")
-            ).alias(f"historical_building_cost_{resource}")
+                pl.col(f"cum_built_cost_at_build_{resource}")
+                - pl.col(f"cum_removed_cost_at_build_{resource}")
+            ).alias(f"standing_cost_at_build_{resource}")
             for resource in RESOURCE_NAMES
         ),
         *(
-            pl.col(f"cum_built_paid_cost_{resource}").alias(
-                f"lifetime_construction_spend_{resource}"
+            pl.col(f"cum_built_cost_at_build_{resource}").alias(
+                f"ever_built_cost_at_build_{resource}"
             )
             for resource in RESOURCE_NAMES
         ),
         (pl.col("cum_built_base_total") - pl.col("cum_removed_base_total")).alias(
             "_standing_base_total"
         ),
-        (pl.col("cum_built_opening_total") - pl.col("cum_removed_opening_total")).alias(
-            "opening_stock_base_cost_total"
+        (pl.col("cum_built_preexisting_total") - pl.col("cum_removed_preexisting_total")).alias(
+            "preexisting_cost_undiscounted_total"
         ),
     ).with_columns(
         pl.sum_horizontal(
-            [f"historical_building_cost_{resource}" for resource in RESOURCE_NAMES]
-        ).alias("historical_building_cost_total"),
+            [f"standing_cost_at_build_{resource}" for resource in RESOURCE_NAMES]
+        ).alias("standing_cost_at_build_total"),
         pl.sum_horizontal(
-            [f"lifetime_construction_spend_{resource}" for resource in RESOURCE_NAMES]
-        ).alias("lifetime_construction_spend_total"),
-        # Share of this row's standing building value that could be dated to an
-        # observed interval; the rest is opening stock priced at first sighting.
-        (
-            1.0
-            - safe_divide(
-                pl.col("cum_built_opening_total")
-                - pl.col("cum_removed_opening_total"),
-                pl.col("cum_built_base_total") - pl.col("cum_removed_base_total"),
-            )
-        ).alias("observed_construction_coverage"),
+            [f"ever_built_cost_at_build_{resource}" for resource in RESOURCE_NAMES]
+        ).alias("ever_built_cost_at_build_total"),
+        _preexisting_share(
+            pl.col("preexisting_cost_undiscounted_total"),
+            pl.col("_standing_base_total"),
+        ),
     )
 
     return (
         summary.select(
             *_CITY_SNAPSHOT_KEYS,
-            *(f"historical_building_cost_{resource}" for resource in RESOURCE_NAMES),
-            "historical_building_cost_total",
+            *(f"standing_cost_at_build_{resource}" for resource in RESOURCE_NAMES),
+            "standing_cost_at_build_total",
             *(
-                f"lifetime_construction_spend_{resource}"
+                f"ever_built_cost_at_build_{resource}"
                 for resource in RESOURCE_NAMES
             ),
-            "lifetime_construction_spend_total",
-            "opening_stock_base_cost_total",
-            "observed_construction_coverage",
+            "ever_built_cost_at_build_total",
+            "preexisting_cost_undiscounted_total",
+            "preexisting_share",
         )
         .sort(*_CITY_KEYS, "snapshot_date")
         .collect(engine="streaming")
     )
 
 
-def observed_construction_coverage_expr() -> pl.Expr:
-    """Datable share of a row's standing building value, at any grain.
+def _preexisting_share(preexisting: pl.Expr, standing: pl.Expr) -> pl.Expr:
+    """Share of the standing undiscounted cost that was already there at first sighting.
 
-    Standing base cost equals ``building_base_cost_total`` exactly, and both it
-    and the opening-stock total sum cleanly, so the same expression is valid for
-    a city, a player, an island, or a player-island.
+    Null when nothing stands, so averages skip rows without buildings instead
+    of counting them as fully reliable or fully guessed.
     """
     return (
-        1.0
-        - safe_divide(
-            pl.col("opening_stock_base_cost_total"),
-            pl.col("building_base_cost_total"),
-        )
-    ).alias("observed_construction_coverage")
+        pl.when(standing > 0)
+        .then(preexisting / standing)
+        .otherwise(None)
+        .alias("preexisting_share")
+    )
+
+
+def preexisting_share_expr() -> pl.Expr:
+    """``preexisting_share`` at any grain: city, player, island or player-island.
+
+    Standing undiscounted cost equals ``standing_cost_undiscounted_total``
+    exactly, and both it and the preexisting total sum cleanly, so the share
+    is recomputed from the summed totals of each published table.
+    """
+    return _preexisting_share(
+        pl.col(PREEXISTING_TOTAL),
+        pl.col("standing_cost_undiscounted_total"),
+    )
+
+
+def publish_preexisting_share(frame: pl.DataFrame) -> pl.DataFrame:
+    """Add ``preexisting_share`` and drop the helper total it was computed from.
+
+    The share times ``standing_cost_undiscounted_total`` gives the total back,
+    so publishing it would only add a column without information.
+    """
+    return frame.with_columns(preexisting_share_expr()).drop(PREEXISTING_TOTAL)
 
 
 def attach_city_construction(
@@ -498,9 +514,9 @@ def attach_city_construction(
 ) -> pl.DataFrame:
     """Join the summable construction measures onto the city panel.
 
-    ``observed_construction_coverage`` is deliberately not carried through: it
+    ``preexisting_share`` is deliberately not carried through: it
     is a ratio, so every published table recomputes it with
-    :func:`observed_construction_coverage_expr` from its own summed totals.
+    :func:`preexisting_share_expr` from its own summed totals.
     """
     measures = city_construction.select(
         pl.col("country_code").alias("country"),

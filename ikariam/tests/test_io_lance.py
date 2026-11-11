@@ -49,13 +49,13 @@ def test_partition_raw_tables_by_country_requires_country_column():
 def test_construction_ledgers_carry_their_documentation(
     table_name: str, description_start: str
 ) -> None:
-    frame = pl.DataFrame({"city_id": ["c1"], "paid_cost_wood": [1.0]})
+    frame = pl.DataFrame({"city_id": ["c1"], "cost_at_build_wood": [1.0]})
 
     table = _attach_metadata(frame, table_name)
 
     assert table.schema.metadata[b"description"].decode().startswith(description_start)
     assert table.schema.field("city_id").metadata[b"description"] == b"SHA1 of the city"
-    assert table.schema.field("paid_cost_wood").metadata[b"unit"] == b"wood"
+    assert table.schema.field("cost_at_build_wood").metadata[b"unit"] == b"wood"
 
 
 def test_write_lancedb_replaces_previous_tables(tmp_path) -> None:
