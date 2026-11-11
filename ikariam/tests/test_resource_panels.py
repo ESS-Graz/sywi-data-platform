@@ -80,8 +80,6 @@ def test_city_metrics_keep_base_costs_and_estimates_reconcilable() -> None:
     assert row["standing_cost_today_wood"] == 86.0
     assert row["standing_cost_today_total"] == pytest.approx(172.0)
     assert row["resources_stored_total"] == 15.0
-    assert row["wood_tied_up"] == 91.0
-    assert row["resources_tied_up_total"] == pytest.approx(187.0)
     assert row["estimated_research_cost_factor"] == 0.86
     assert row["estimated_research_cost_factor_source"] == "age_heuristic"
     assert row["research_evidence_tier"] == "geometry_or_later"
@@ -145,10 +143,6 @@ def test_each_resource_uses_its_own_reducer_level() -> None:
 
         assert row[f"standing_cost_today_{resource}"] == pytest.approx(
             cost * row[f"cost_factor_today_{resource}"]
-        )
-
-        assert row[f"{resource}_tied_up"] == pytest.approx(
-            row[f"standing_cost_today_{resource}"] + STORED[resource]
         )
 
     assert row["standing_cost_undiscounted_total"] == 200.0

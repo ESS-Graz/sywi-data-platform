@@ -46,7 +46,7 @@ def _costs() -> pl.DataFrame:
     )
 
 
-def _city(*snapshots: dict[str, object]) -> pl.DataFrame:
+def _city(*snapshots: dict[str, object], city_id: str = "c1") -> pl.DataFrame:
     """Build a one-city panel; each snapshot gives slot (type, level) pairs."""
     rows = []
 
@@ -57,7 +57,9 @@ def _city(*snapshots: dict[str, object]) -> pl.DataFrame:
         row: dict[str, object] = {
             "country": "DE",
             "server": 1,
-            "id": "c1",
+            "id": city_id,
+            "owner_id": snapshot.get("owner", "p1"),
+            "estimated_research_cost_factor": snapshot.get("research", 1.0),
             "snapshot_id": snapshot_id,
             "snapshot_date": _DATES[snapshot_id],
             "level": snapshot.get("town_hall", 0),
@@ -101,6 +103,44 @@ def test_levels_are_priced_at_the_interval_midpoint_factor() -> None:
         {"building_level": 2, "is_preexisting": False, "cost_factor_at_build_wood": 0.9, "cost_at_build_wood": 180.0},
         {"building_level": 3, "is_preexisting": False, "cost_factor_at_build_wood": 0.9, "cost_at_build_wood": 270.0},
     ]
+
+
+def test_city_founded_after_the_first_snapshot_is_dated_not_preexisting() -> None:
+    # c0 exists from the start; its owner has research factor 0.9 at s1.
+    old = _city(
+        {"snapshot_id": "s1", "slots": {1: (3, 1)}, "factor": 0.9, "research": 0.9},
+        {"snapshot_id": "s2", "slots": {1: (3, 1)}, "factor": 0.8, "research": 0.8},
+        city_id="c0",
+    )
+    # The same player founds c1 between s1 and s2.
+    new = _city({"snapshot_id": "s2", "slots": {1: (3, 2)}, "factor": 0.8, "research": 0.8})
+
+    events, _, _ = _events(pl.concat([old, new]))
+    c1 = events.filter(pl.col("city_id") == "c1").sort("building_level")
+
+    assert not any(c1["is_preexisting"].to_list())
+    assert c1["built_after_snapshot_date"].to_list() == [_DATES["s1"], _DATES["s1"]]
+    # Midpoint of the owner's research factor at s1 (no reduction buildings
+    # yet) and the city's own factor at s2.
+    assert c1["cost_factor_at_build_wood"].to_list() == [pytest.approx(0.85)] * 2
+    assert c1["cost_at_build_wood"].to_list() == [pytest.approx(85.0), pytest.approx(170.0)]
+    # c0 was already standing at the server's first snapshot.
+    assert events.filter(pl.col("city_id") == "c0")["is_preexisting"].to_list() == [True]
+
+
+def test_new_player_starts_without_research_discount() -> None:
+    old = _city(
+        {"snapshot_id": "s1", "slots": {1: (3, 1)}, "factor": 0.9, "research": 0.9},
+        {"snapshot_id": "s2", "slots": {1: (3, 1)}, "factor": 0.9, "research": 0.9},
+        city_id="c0",
+    )
+    # p2 has no city at s1, so it had not started and had no research yet.
+    new = _city({"snapshot_id": "s2", "slots": {1: (3, 1)}, "factor": 0.8, "owner": "p2"})
+
+    events, _, _ = _events(pl.concat([old, new]))
+    c1 = events.filter(pl.col("city_id") == "c1")
+
+    assert c1["cost_factor_at_build_wood"].to_list() == [pytest.approx(0.9)]
 
 
 def test_standing_value_and_lifetime_spend_track_construction() -> None:

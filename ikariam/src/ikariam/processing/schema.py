@@ -87,7 +87,7 @@ def _construction_docs(scope: str) -> dict[str, dict[str, str]]:
         "unit": _SUM_UNIT,
     }
     docs["preexisting_share"] = {
-        "description": f"How much of the standing buildings {scope} was already there when the data starts, so its standing_cost_at_build is a guess? Share of standing_cost_undiscounted_total from preexisting levels: 0 = every level was built while observed (reliable), 1 = every level was already standing (pure guess). About 0.03 on the five long-running servers, 1 on the 13 servers with a single snapshot. Null when nothing stands. To combine rows, weight by standing_cost_undiscounted_total: sum(preexisting_share * standing_cost_undiscounted_total) / sum(standing_cost_undiscounted_total).",
+        "description": f"How much of the standing buildings {scope} was already there when the data starts, so its standing_cost_at_build is a guess? Share of standing_cost_undiscounted_total from preexisting levels: 0 = every level was built while observed (reliable), 1 = every level was already standing (pure guess). Close to 0 on the five long-running servers, whose first snapshot is one day after the start; 1 on the 13 servers with a single snapshot. Null when nothing stands. To combine rows, weight by standing_cost_undiscounted_total: sum(preexisting_share * standing_cost_undiscounted_total) / sum(standing_cost_undiscounted_total).",
         "unit": "ratio between 0 and 1",
     }
     return docs
@@ -134,22 +134,6 @@ def _stored_resource_docs(scope: str) -> dict[str, dict[str, str]]:
     }
     docs["resources_stored_total"] = {
         "description": f"wood_stored + wine_stored + marble_stored + crystal_stored + sulfur_stored. {_SUM_NOTE}",
-        "unit": _SUM_UNIT,
-    }
-    return docs
-
-
-def _tied_up_docs(scope: str) -> dict[str, dict[str, str]]:
-    """Resources tied up in standing buildings plus storage."""
-    docs = {
-        f"{resource}_tied_up": {
-            "description": f"How much {resource} is bound {scope} at this snapshot? standing_cost_today_{resource} (the standing buildings at today's discount) + {resource}_stored. Leaves out demolished buildings, ships and units, trades and donations, so it is neither income nor total spending.",
-            "unit": unit,
-        }
-        for resource, unit in _RESOURCE_UNITS.items()
-    }
-    docs["resources_tied_up_total"] = {
-        "description": f"standing_cost_today_total + resources_stored_total, the five *_tied_up columns added. {_SUM_NOTE}",
         "unit": _SUM_UNIT,
     }
     return docs
@@ -205,7 +189,6 @@ PLAYER_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     "population_total": {"description": "Total population across this player's cities", "unit": "count"},
     **_building_cost_docs("across this player's cities"),
     **_stored_resource_docs("across this player's cities"),
-    **_tied_up_docs("across this player's cities"),
     **_construction_docs("across this player's cities"),
     "building_levels_total": {"description": "Sum of all building levels, including town halls", "unit": "sum_levels"},
     "wonder_donations_total": {"description": f"Wonder donations {_PLAYER_DONATION_SCOPE}", "unit": "gold"},
@@ -239,7 +222,6 @@ CITY_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     **_reduction_building_docs(),
     **_building_cost_docs("in this city"),
     **_stored_resource_docs("in this city"),
-    **_tied_up_docs("in this city"),
     **_construction_docs("in this city"),
     "building_levels_total": {"description": "Sum of all building levels in this city, including the town hall", "unit": "sum_levels"},
     "wonder_type_id": {"description": "Wonder type id on this island (intentionally duplicated across cities on this island)", "unit": "enum"},
@@ -317,7 +299,6 @@ ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     "population_total": {"description": "Total population across players", "unit": "count"},
     **_building_cost_docs("across all cities on this island"),
     **_stored_resource_docs("across all cities on this island"),
-    **_tied_up_docs("across all cities on this island"),
     **_construction_docs("across all cities on this island"),
     "building_levels_total": {"description": "Sum of building levels across players, including town halls", "unit": "sum_levels"},
     "avg_population_per_player": {"description": "Average population per player", "unit": "count"},
@@ -364,7 +345,6 @@ DONATION_ANALYTICS_PLAYER_ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     **RESEARCH_COST_ESTIMATE_DOCS,
     **_building_cost_docs("across this player's cities on this island"),
     **_stored_resource_docs("across this player's cities on this island"),
-    **_tied_up_docs("across this player's cities on this island"),
     **_construction_docs("across this player's cities on this island"),
     "account_age_days": {
         "description": (
@@ -398,39 +378,39 @@ DONATION_ANALYTICS_PLAYER_ISLAND_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
         "description": "Cumulative donations divided by account age at this snapshot",
         "unit": "gold_per_day",
     },
-    "wood_donation_tied_up_share_pct": {
+    "wood_donation_resource_share_at_build_pct": {
         "description": (
-            "Wood-linked donations as a share of wood_tied_up plus those donations"
+            "Sawmill plus luxury-mine donations as a share of standing_cost_at_build_wood + wood_stored + those donations"
         ),
         "unit": "percent",
     },
-    "wine_wonder_donation_tied_up_share_pct": {
+    "wine_wonder_donation_resource_share_at_build_pct": {
         "description": (
-            "Wine wonder allocation as a share of wine_tied_up plus that allocation"
+            "Wonder donations allocated to wine as a share of standing_cost_at_build_wine + wine_stored + that allocation"
         ),
         "unit": "percent",
     },
-    "marble_wonder_donation_tied_up_share_pct": {
+    "marble_wonder_donation_resource_share_at_build_pct": {
         "description": (
-            "Marble wonder allocation as a share of marble_tied_up plus that allocation"
+            "Wonder donations allocated to marble as a share of standing_cost_at_build_marble + marble_stored + that allocation"
         ),
         "unit": "percent",
     },
-    "crystal_wonder_donation_tied_up_share_pct": {
+    "crystal_wonder_donation_resource_share_at_build_pct": {
         "description": (
-            "Crystal wonder allocation as a share of crystal_tied_up plus that allocation"
+            "Wonder donations allocated to crystal as a share of standing_cost_at_build_crystal + crystal_stored + that allocation"
         ),
         "unit": "percent",
     },
-    "sulfur_wonder_donation_tied_up_share_pct": {
+    "sulfur_wonder_donation_resource_share_at_build_pct": {
         "description": (
-            "Sulfur wonder allocation as a share of sulfur_tied_up plus that allocation"
+            "Wonder donations allocated to sulfur as a share of standing_cost_at_build_sulfur + sulfur_stored + that allocation"
         ),
         "unit": "percent",
     },
-    "donations_tied_up_share_pct": {
+    "donations_resource_share_at_build_pct": {
         "description": (
-            "Cumulative donations as a share of resources_tied_up_total plus cumulative donations"
+            "Cumulative donations as a share of standing_cost_at_build_total + resources_stored_total + cumulative donations"
         ),
         "unit": "percent",
     },
@@ -467,13 +447,13 @@ BUILDING_CONSTRUCTION_EVENT_DOCS: dict[str, dict[str, str]] = {
     },
     "built_after_snapshot_date": {
         "description": (
-            "Date of the previous observation of this position; the level appeared between this date and built_by_snapshot_date. Null when the level was already present at first sighting"
+            "The level appeared between this date and built_by_snapshot_date: the previous snapshot of this city, or for a city founded since the server's previous snapshot, that server snapshot. Null for preexisting levels"
         ),
         "unit": "date",
     },
     "is_preexisting": {
         "description": (
-            "True when the level was already standing the first time this building was observed, so its build time is unknown and cost_at_build uses the discount of that first observation (a guess)"
+            "True when the level was already standing at the server's first snapshot, so its build time is unknown and cost_at_build uses the discount of that snapshot (a guess). Levels of cities founded later are dated and false"
         ),
         "unit": "boolean",
     },

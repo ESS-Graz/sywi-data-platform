@@ -28,8 +28,11 @@ Two measures come out of it:
     What the player paid for every level ever built, including levels later
     demolished.  It never decreases.
 
-Levels already present the first time a building is observed cannot be dated.
-They are priced at the factor seen at that first observation and flagged as
+A city first seen after its server's first snapshot was founded since the
+server's previous snapshot, so its levels are dated to that interval too; its
+starting factor is the owner's research factor then, with no reduction
+buildings.  Only levels already standing at the server's first snapshot cannot
+be dated.  They are priced at that snapshot's factor and flagged as
 preexisting, so ``preexisting_share`` exposes how much of a row rests on that
 weaker assumption.
 """
@@ -231,6 +234,43 @@ def build_construction_events(
         }
     )
 
+    # A city first seen after its server's first snapshot was founded since the
+    # server's previous snapshot, so its levels are dated to that interval.
+    server_dates = (
+        city_enriched.select(
+            pl.col("country").alias("country_code"), "server", "snapshot_date"
+        )
+        .unique()
+        .sort("country_code", "server", "snapshot_date")
+        .with_columns(
+            pl.col("snapshot_date")
+            .shift(1)
+            .over(["country_code", "server"])
+            .alias("_prev_server_date")
+        )
+    )
+
+    owners = city_enriched.select(
+        pl.col("country").alias("country_code"),
+        "server",
+        pl.col("id").alias("city_id"),
+        "snapshot_date",
+        "owner_id",
+    )
+
+    # The new city has no reduction buildings yet, so at the server's previous
+    # snapshot it would have paid the owner's research factor only. A player
+    # without any city at that snapshot had not started yet: no research.
+    owner_research = (
+        city_enriched.group_by(
+            pl.col("country").alias("country_code"),
+            "server",
+            "owner_id",
+            pl.col("snapshot_date").alias("_prev_date"),
+        )
+        .agg(pl.col("estimated_research_cost_factor").first().alias("_owner_research_factor"))
+    )
+
     same_building = pl.col("_prev_type") == pl.col("building_type")
 
     # Levels at or below this were already paid for before this observation.
@@ -240,9 +280,25 @@ def build_construction_events(
         .otherwise(pl.lit(0, dtype=pl.Int64))
     )
 
+    first_sighting = pl.col("_prev_type").is_null()
+    founded = first_sighting & pl.col("_prev_server_date").is_not_null()
+
     events = (
         _with_transitions(slot_panel)
-        .with_columns(already_built.alias("_already_built"))
+        .join(server_dates, on=["country_code", "server", "snapshot_date"], how="left")
+        .join(owners, on=["country_code", "server", "city_id", "snapshot_date"], how="left")
+        .with_columns(
+            already_built.alias("_already_built"),
+            # Only levels already standing at the server's first snapshot
+            # cannot be dated.
+            (first_sighting & pl.col("_prev_server_date").is_null()).alias(
+                "is_preexisting"
+            ),
+            pl.when(founded)
+            .then(pl.col("_prev_server_date"))
+            .otherwise(pl.col("_prev_date"))
+            .alias("_prev_date"),
+        )
         .filter(
             (pl.col("building_type") > 0)
             & (pl.col("building_level") > pl.col("_already_built"))
@@ -251,13 +307,20 @@ def build_construction_events(
             pl.int_ranges(
                 pl.col("_already_built") + 1, pl.col("building_level") + 1
             ).alias("_levels"),
-            pl.col("_prev_type").is_null().alias("is_preexisting"),
         )
         .drop("building_level")
         .explode("_levels")
         .rename({"_levels": "building_level"})
         .join(factors, on=["country_code", "server", "city_id", "snapshot_date"], how="left")
         .join(start_factors, on=["country_code", "server", "city_id", "_prev_date"], how="left")
+        .join(owner_research, on=["country_code", "server", "owner_id", "_prev_date"], how="left")
+        .with_columns(
+            pl.when(founded)
+            .then(pl.col("_owner_research_factor").fill_null(1.0))
+            .otherwise(pl.col(f"_start_factor_{resource}"))
+            .alias(f"_start_factor_{resource}")
+            for resource in RESOURCE_NAMES
+        )
         .join(
             build_level_cost_deltas(building_costs),
             on=["building_type", "building_level"],
@@ -474,7 +537,7 @@ def summarize_city_construction(
 
 
 def _preexisting_share(preexisting: pl.Expr, standing: pl.Expr) -> pl.Expr:
-    """Share of the standing undiscounted cost that was already there at first sighting.
+    """Share of the standing undiscounted cost already there at the server's first snapshot.
 
     Null when nothing stands, so averages skip rows without buildings instead
     of counting them as fully reliable or fully guessed.

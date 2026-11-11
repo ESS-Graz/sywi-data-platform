@@ -149,9 +149,10 @@ count and **which discount** they apply. The names follow the pattern
 - `ever_built_cost_at_build_*`: what did every level ever built cost, including
   levels later demolished? It never decreases. The gap to
   `standing_cost_at_build_*` is the value lost to demolition.
-- `*_tied_up`: how much of a resource is bound in the city:
-  `standing_cost_today_*` plus `*_stored`. It is neither income nor total
-  spending.
+
+For the total amount of a resource bound in a city, add the stock to the
+building value you need, for example
+`standing_cost_at_build_wood + wood_stored`.
 
 Research is not in the data either. `estimated_research_cost_factor`,
 `estimated_research_cost_factor_source` and `research_evidence_tier` show how
@@ -174,11 +175,46 @@ built for. So:
 
 A later rebuild therefore never changes an earlier snapshot's value.
 
+**New cities.** A city that first appears after its server's first snapshot was
+founded since the server's previous snapshot, so its levels are dated to that
+interval as well (`built_after_snapshot_date` is that server snapshot). The
+city did not exist at the start of the interval, so the starting discount is
+the owner's research factor at that snapshot, with no reduction buildings. A
+player without any city at that snapshot had not started yet and gets no
+research discount (factor 1.0).
+
+### Example
+
+A city with one warehouse. In the full price list, level 1 costs 100 wood,
+level 2 costs 200 and level 3 costs 300. The city existed at the server's
+first snapshot s1.
+
+| | What happens | `cost_factor_today` | `undiscounted` | `today` | `at_build` | `ever_built` | `preexisting_share` |
+|---|---|---|---|---|---|---|---|
+| s1 | level 1 already there when the data starts | 1.0 | 100 | 100 | **100** (guess) | 100 | 1.0 |
+| s2 | level 2 appears; the factor went from 1.0 to 0.9, midpoint 0.95 | 0.9 | 300 | 270 | 100 + **190** = 290 | 290 | 0.33 |
+| s3 | level 3 appears, built at 0.9 | 0.9 | 600 | 540 | 290 + **270** = 560 | 560 | 0.17 |
+| s4 | level 3 torn down | 0.9 | 300 | 270 | 560 − 270 = 290 | **560** (stays) | 0.33 |
+
+(All columns are the `standing_cost_*_wood` and `ever_built_cost_at_build_wood`
+of this city.)
+
+- `today` gives level 1 a discount it never had (90 instead of 100 at s2), so it
+  understates the real cost.
+- `at_build` prices every level at its own discount: the best estimate.
+- `ever_built` never goes down; the 270 lost to the demolition is its gap to
+  `at_build`.
+- `preexisting_share` shrinks as levels are built while observed, and rises
+  again when such a level is torn down.
+
+Had the city been founded between s1 and s2 instead, nothing in it would be
+preexisting: its levels would be dated to that interval.
+
 ### `preexisting_share`: how far `at_build` can be trusted
 
-Levels already standing the first time a building is seen are **preexisting**
+Levels already standing at the **server's first snapshot** are **preexisting**
 (`is_preexisting` in the event tables). Their build time is unknown, so their
-`at_build` cost uses the discount of that first observation, which is a guess.
+`at_build` cost uses the discount of that snapshot, which is a guess.
 `preexisting_share` is the share of `standing_cost_undiscounted_total` that is
 preexisting:
 
@@ -195,13 +231,13 @@ sum(preexisting_share * standing_cost_undiscounted_total)
     / sum(standing_cost_undiscounted_total)
 ```
 
-Value-weighted over all rows of the current data:
+How much is preexisting depends on when a server's first snapshot was taken:
 
-| Servers | Snapshots | Preexisting share |
+| Servers | Snapshots | Preexisting |
 |---|---|---|
-| DE 23, EN 22, FR 21, GR 19, TR 25 | 36-37 | 2.8% |
-| AE 18, BR 27 | 6, the first about six months after the server's start | 63.4% |
-| AR 11, RU 17, US 19 and the ten comparison servers | 1 | 100% |
+| DE 23, EN 22, FR 21, GR 19, TR 25 | 36-37, the first one day after the server's start | almost nothing |
+| AE 18, BR 27 | 6, the first about six months after the server's start | everything built in the first six months |
+| AR 11, RU 17, US 19 and the ten comparison servers | 1 | everything (100%) |
 
 With a single snapshot no level can be dated, so on those 13 servers
 `standing_cost_at_build_*` equals `standing_cost_today_*`. Their 100% is not a
@@ -276,7 +312,6 @@ SELECT
     SUM(standing_cost_undiscounted_total) AS standing_cost_undiscounted_total,
     SUM(standing_cost_today_total) AS standing_cost_today_total,
     SUM(resources_stored_total) AS resources_stored_total,
-    SUM(resources_tied_up_total) AS resources_tied_up_total,
     SUM(building_levels_total) AS building_levels_total,
     -- Island columns are the same on every city of the island
     ANY_VALUE(wonder_type_id) AS wonder_type_id,

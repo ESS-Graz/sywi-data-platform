@@ -63,12 +63,6 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
             "sulfur_stored": [10.0, 5.0],
             "wine_stored": [10.0, 5.0],
             "resources_stored_total": [60.0, 25.0],
-            "wood_tied_up": [100.0, 20.0],
-            "crystal_tied_up": [40.0, 5.0],
-            "marble_tied_up": [30.0, 5.0],
-            "sulfur_tied_up": [50.0, 5.0],
-            "wine_tied_up": [20.0, 5.0],
-            "resources_tied_up_total": [240.0, 40.0],
             # Vintage-priced construction measures; p1 is 90% of base cost with
             # 18 of its 180 undiscounted cost preexisting.
             "standing_cost_at_build_wood": [72.0, 13.5],
@@ -136,12 +130,13 @@ def test_donation_analytics_player_island_snapshot_uses_clean_denominators():
     assert row["estimated_research_cost_factor_source"] == "age_heuristic"
     assert row["research_evidence_tier"] == "none"
 
-    assert row["wood_donation_tied_up_share_pct"] == pytest.approx(
-        70.0 / 170.0 * 100.0
+    # 70 wood donated against 72 wood in buildings (at build) + 20 stored.
+    assert row["wood_donation_resource_share_at_build_pct"] == pytest.approx(
+        70.0 / (72.0 + 20.0 + 70.0) * 100.0
     )
 
-    assert row["donations_tied_up_share_pct"] == pytest.approx(
-        100.0 / 340.0 * 100.0
+    assert row["donations_resource_share_at_build_pct"] == pytest.approx(
+        100.0 / (162.0 + 60.0 + 100.0) * 100.0
     )
 
     age_zero_row = result.filter(pl.col("player_id") == "p2").row(0, named=True)

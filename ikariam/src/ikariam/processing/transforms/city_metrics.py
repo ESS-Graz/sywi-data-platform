@@ -154,24 +154,6 @@ def compute_city_metrics(
         ).alias("standing_cost_today_total")
     )
 
-    # Estimated resource value combines estimated building costs and observed
-    # storage, while retaining every input component for reconciliation.
-    df = df.with_columns(
-        [
-            (
-                pl.col(f"standing_cost_today_{resource}")
-                + pl.col(f"{resource}_stored")
-            ).alias(f"{resource}_tied_up")
-            for resource in RESOURCE_NAMES
-        ]
-    )
-
-    df = df.with_columns(
-        pl.sum_horizontal(
-            [pl.col(f"{resource}_tied_up") for resource in RESOURCE_NAMES]
-        ).alias("resources_tied_up_total")
-    )
-
     # --- Population and building levels. ---
     df = df.with_columns(
         (

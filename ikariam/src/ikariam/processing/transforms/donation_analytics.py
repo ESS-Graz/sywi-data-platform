@@ -29,8 +29,6 @@ RESOURCE_COLUMNS: tuple[str, ...] = (
     + ("standing_cost_today_total",)
     + tuple(f"{resource}_stored" for resource in RESOURCE_NAMES)
     + ("resources_stored_total",)
-    + tuple(f"{resource}_tied_up" for resource in RESOURCE_NAMES)
-    + ("resources_tied_up_total",)
     + CONSTRUCTION_SUM_COLUMNS
 )
 
@@ -201,34 +199,41 @@ def build_donation_analytics_player_island_snapshot(
     result = result.with_columns(
         safe_percent(
             pl.col("sawmill_donations_total") + pl.col("luxury_mine_donations_total"),
-            pl.col("wood_tied_up")
+            pl.col("standing_cost_at_build_wood")
+            + pl.col("wood_stored")
             + pl.col("sawmill_donations_total")
             + pl.col("luxury_mine_donations_total"),
-        ).alias("wood_donation_tied_up_share_pct"),
+        ).alias("wood_donation_resource_share_at_build_pct"),
         safe_percent(
             pl.col("wonder_wine_donations_allocated"),
-            pl.col("wine_tied_up")
+            pl.col("standing_cost_at_build_wine")
+            + pl.col("wine_stored")
             + pl.col("wonder_wine_donations_allocated"),
-        ).alias("wine_wonder_donation_tied_up_share_pct"),
+        ).alias("wine_wonder_donation_resource_share_at_build_pct"),
         safe_percent(
             pl.col("wonder_marble_donations_allocated"),
-            pl.col("marble_tied_up")
+            pl.col("standing_cost_at_build_marble")
+            + pl.col("marble_stored")
             + pl.col("wonder_marble_donations_allocated"),
-        ).alias("marble_wonder_donation_tied_up_share_pct"),
+        ).alias("marble_wonder_donation_resource_share_at_build_pct"),
         safe_percent(
             pl.col("wonder_crystal_donations_allocated"),
-            pl.col("crystal_tied_up")
+            pl.col("standing_cost_at_build_crystal")
+            + pl.col("crystal_stored")
             + pl.col("wonder_crystal_donations_allocated"),
-        ).alias("crystal_wonder_donation_tied_up_share_pct"),
+        ).alias("crystal_wonder_donation_resource_share_at_build_pct"),
         safe_percent(
             pl.col("wonder_sulfur_donations_allocated"),
-            pl.col("sulfur_tied_up")
+            pl.col("standing_cost_at_build_sulfur")
+            + pl.col("sulfur_stored")
             + pl.col("wonder_sulfur_donations_allocated"),
-        ).alias("sulfur_wonder_donation_tied_up_share_pct"),
+        ).alias("sulfur_wonder_donation_resource_share_at_build_pct"),
         safe_percent(
             pl.col("donations_total"),
-            pl.col("resources_tied_up_total") + pl.col("donations_total"),
-        ).alias("donations_tied_up_share_pct"),
+            pl.col("standing_cost_at_build_total")
+            + pl.col("resources_stored_total")
+            + pl.col("donations_total"),
+        ).alias("donations_resource_share_at_build_pct"),
     )
 
     return result.sort(["player_id", "island_id", "snapshot_date", "snapshot_id"])

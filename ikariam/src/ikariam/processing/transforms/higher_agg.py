@@ -24,8 +24,6 @@ RESOURCE_COLUMNS: tuple[str, ...] = (
     + ("standing_cost_today_total",)
     + tuple(f"{resource}_stored" for resource in RESOURCE_NAMES)
     + ("resources_stored_total",)
-    + tuple(f"{resource}_tied_up" for resource in RESOURCE_NAMES)
-    + ("resources_tied_up_total",)
     + CONSTRUCTION_SUM_COLUMNS
 )
 

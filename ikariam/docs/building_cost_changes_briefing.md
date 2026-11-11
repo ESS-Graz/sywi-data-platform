@@ -3,7 +3,7 @@
 > **Column names changed (2026-11).** This note uses the old names. In the current tables:
 > `building_base_cost_*` → `standing_cost_undiscounted_*`, `estimated_building_cost_*` → `standing_cost_today_*`,
 > `historical_building_cost_*` → `standing_cost_at_build_*`, `lifetime_construction_spend_*` → `ever_built_cost_at_build_*`,
-> `estimated_*_resource_value` → `*_tied_up`, `estimated_<r>_cost_factor` → `cost_factor_today_<r>`,
+> `estimated_*_resource_value` removed (add `*_stored` to a building value yourself), `estimated_*_resource_share_pct` → `*_resource_share_at_build_pct` (now from `standing_cost_at_build` + stored), `estimated_<r>_cost_factor` → `cost_factor_today_<r>`,
 > event columns `level_cost_*` → `cost_undiscounted_*`, `paid_cost_*` → `cost_at_build_*`, `factor_*` → `cost_factor_at_build_*`,
 > `is_opening_stock` → `is_preexisting`. `observed_construction_coverage` is replaced by `preexisting_share`
 > (= 1 − coverage, NULL without buildings) and `opening_stock_base_cost_total` is no longer published.
