@@ -37,7 +37,7 @@ logs service="":
 export table format="parquet" source="local":
     uv run dev export {{table}} {{format}} {{source}}
 
-# Pull table from the remote Lance database
+# Pull a table (or a whole database with --db <name>) from the remote Lance database
 pull *args:
     uv run dev pull {{args}}
 

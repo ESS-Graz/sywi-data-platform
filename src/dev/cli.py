@@ -735,6 +735,30 @@ def export_table(
     console.print(f"{output_file}: {row_count} rows exported from {source}")
 
 
+def _pull_table(conn: duckdb.DuckDBPyConnection, database: str, table: str, limit: Optional[int]) -> None:
+    """Copy one remote table into the local Lance database, replacing any older local copy."""
+    target = f"{_local_lance_uri().rstrip('/')}/{table}.lance"
+    query = f"SELECT * FROM {database}.main.{table}"
+
+    if limit:
+        query += f" LIMIT {int(limit)}"
+
+    conn.execute(f"COPY ({query}) TO {_sql_str(target)} (FORMAT lance, mode 'overwrite')")
+
+    result = conn.execute(f"SELECT COUNT(*) FROM local.main.{table}").fetchone()
+    row_count = result[0] if result else 0
+    console.print(f"{table}: {row_count} rows pulled from {database}")
+
+    # Mark asset as materialized in native Dagster instance
+    _mark_asset_materialized(table, "Pulled from remote Lance database")
+
+
+def _row_count(conn: duckdb.DuckDBPyConnection, database: str, table: str) -> int:
+    """Row count from the Lance metadata, so this is quick even for huge tables."""
+    result = conn.execute(f"SELECT COUNT(*) FROM {database}.main.{table}").fetchone()
+    return result[0] if result else 0
+
+
 @app.command()
 def pull(
     table: Optional[str] = typer.Argument(
@@ -744,72 +768,99 @@ def pull(
     source: Optional[str] = typer.Option(
         None, "--from", "-f", help="Name of the remote database (if there are several)"
     ),
+    database: Optional[str] = typer.Option(
+        None, "--db", "-d", help="Pull every table of this remote database"
+    ),
     yes: bool = typer.Option(
-        False, "--yes", "-y", help=f"Pull a table of more than {PULL_ROW_WARNING:,} rows without a row limit"
+        False, "--yes", "-y", help=f"Pull tables of more than {PULL_ROW_WARNING:,} rows without a row limit"
     ),
 ):
-    """List remote tables or pull a table from a remote Lance database."""
+    """List remote tables, pull one table, or pull a whole remote database.
+
+    Pulling again replaces the local copy, so it also brings in changes made on the server.
+    """
     remotes = _remote_lance_uris()
     if not remotes:
         err_console.print("[red]Error:[/red] LANCE_REMOTE_URI not set in .env.local")
         raise typer.Exit(1)
 
-    if source is not None and source not in remotes:
-        err_console.print(f"[red]Error:[/red] Unknown remote '{source}'. Available: {', '.join(remotes)}")
+    for name in (source, database):
+        if name is not None and name not in remotes:
+            err_console.print(f"[red]Error:[/red] Unknown remote '{name}'. Available: {', '.join(remotes)}")
+            raise typer.Exit(1)
+
+    if database is not None and source is not None:
+        err_console.print("[red]Error:[/red] Use either --db or --from, not both.")
         raise typer.Exit(1)
 
     conn = duckdb.connect()
     conn.execute(build_duckdb_init_sql(use_getenv=False))
 
-    names = ", ".join(_sql_str(name) for name in (remotes if source is None else [source]))
+    searched = [database or source] if (database or source) else list(remotes)
+    names = ", ".join(_sql_str(name) for name in searched)
 
     found = conn.execute(
         f"SELECT database, name FROM (SHOW ALL TABLES) WHERE database IN ({names}) ORDER BY database, name"
     ).fetchall()
 
+    # Whole database: --db <name>, optionally with a row limit per table as the only argument.
+    if database is not None:
+        if table is not None and limit is None and table.isdigit():
+            table, limit = None, int(table)
+
+        if table is not None:
+            err_console.print("[red]Error:[/red] With --db, give no table name (only an optional row limit).")
+            raise typer.Exit(1)
+
+        tables = [name for _, name in found]
+        if not tables:
+            err_console.print(f"[red]Error:[/red] No tables found in {database}")
+            raise typer.Exit(1)
+
+        if not limit and not yes:
+            large = [(name, _row_count(conn, database, name)) for name in tables]
+            large = [(name, n) for name, n in large if n > PULL_ROW_WARNING]
+            if large:
+                for name, n in large:
+                    err_console.print(f"[red]Error:[/red] {database}.{name} has {n:,} rows.")
+                err_console.print(
+                    f"Give a row limit per table (for example 'just pull --db {database} 10000') or confirm with --yes."
+                )
+                raise typer.Exit(1)
+
+        console.print(f"Pulling {len(tables)} tables from {database}")
+        for name in tables:
+            _pull_table(conn, database, name, limit)
+        return
+
     if table is None:
         console.print("Remote tables:")
-        for database, name in found:
-            console.print(name if len(remotes) == 1 else f"{database}.{name}")
+        for db_name, name in found:
+            console.print(name if len(remotes) == 1 else f"{db_name}.{name}")
         return
 
     _check_table_name(table)
-    sources = [database for database, name in found if name == table]
+    sources = [db_name for db_name, name in found if name == table]
     if not sources:
-        err_console.print(f"[red]Error:[/red] Table '{table}' not found in {', '.join(remotes) if source is None else source}")
+        err_console.print(f"[red]Error:[/red] Table '{table}' not found in {', '.join(searched)}")
         raise typer.Exit(1)
 
     if len(sources) > 1:
         err_console.print(f"[red]Error:[/red] Table '{table}' exists in {', '.join(sources)}. Choose one with --from.")
         raise typer.Exit(1)
 
-    target = f"{_local_lance_uri().rstrip('/')}/{table}.lance"
-    query = f"SELECT * FROM {sources[0]}.main.{table}"
-
-    if limit:
-        query += f" LIMIT {int(limit)}"
-    elif not yes:
-        # The row count comes from the Lance metadata, so this is quick even for huge tables.
-        result = conn.execute(f"SELECT COUNT(*) FROM {sources[0]}.main.{table}").fetchone()
-        total = result[0] if result else 0
+    if not limit and not yes:
+        total = _row_count(conn, sources[0], table)
         if total > PULL_ROW_WARNING:
             err_console.print(
-                f"[red]Error:[/red] {sources[0]}.{table} has {total:,} rows and would be copied "
-                f"completely to {target}."
+                f"[red]Error:[/red] {sources[0]}.{table} has {total:,} rows and would be copied completely."
             )
             err_console.print(
                 f"Give a row limit (for example 'just pull {table} 10000') or confirm with --yes."
             )
             raise typer.Exit(1)
 
-    conn.execute(f"COPY ({query}) TO {_sql_str(target)} (FORMAT lance, mode 'overwrite')")
-
-    result = conn.execute(f"SELECT COUNT(*) FROM local.main.{table}").fetchone()
-    row_count = result[0] if result else 0
-    console.print(f"{table}: {row_count} rows pulled from {sources[0]}")
-
-    # Mark asset as materialized in native Dagster instance
-    _mark_asset_materialized(table, "Pulled from remote Lance database")
+    _pull_table(conn, sources[0], table, limit)
 
 
 @app.command()

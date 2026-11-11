@@ -174,11 +174,20 @@ just pull hackernews_stories 1000
 # With several remotes the list shows <remote>.<table>. A table that exists in
 # only one remote is found automatically; otherwise choose with --from
 just pull player_snapshot 1000 --from ikariam
+
+# Pull every table of one remote database
+just pull --db hackernews
+
+# The same with at most 1000 rows per table
+just pull --db ikariam 1000
 ```
+
+Pulling again replaces the local copy, so run the same command to bring in changes made on the
+server.
 
 Pulling a table of more than 5 million rows without a row limit is refused, so you do not copy
 a huge table by accident (`patents.google_patents` has 116 million rows). Give a limit, or
-confirm with `--yes`.
+confirm with `--yes`. With `--db` the whole pull is refused if any table is that large.
 
 Pulled tables are automatically marked as materialized in Dagster.
 
@@ -304,6 +313,7 @@ dbGetQuery(con, "SELECT * FROM local.my_table")
 | `just pull <table>` | Pull table from remote |
 | `just pull <table> <limit>` | Pull limited rows |
 | `just pull ... --from <name>` | Pull from a specific remote (when there are several) |
+| `just pull --db <name> [limit]` | Pull every table of a remote database (again to update) |
 | `just export <table> [format] [source]` | Export table to file |
 | `just logs [service]` | View Docker logs |
 | `just prod` | Start production-like environment |
