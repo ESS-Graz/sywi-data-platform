@@ -83,19 +83,11 @@ are in `data/raw/ikariam/server_starts.csv`, taken from the sheet `Servers` in
 [`docs/snapshots_verification.xlsx`](docs/snapshots_verification.xlsx). AR 11 is taken as 10:00 UTC
 (issue I08 in that workbook). The run fails if a server in the data has no start time.
 
-## Data Denormalization & Normalization Philosophy
+## Repeated Island Columns in city_snapshot
 
-To support rich analytical workloads, we deliberately choose a denormalized design for the `city_snapshot` table:
+`city_snapshot` has one row per city. Its island columns (`wonder_level`, `sawmill_level`, `island_city_count`, …) describe the island the city is on, so they repeat on every city of that island. City columns such as population, buildings or stored resources can be summed freely. For an island column, take one value per island (`ANY_VALUE` when grouping by `country_code, server, island_id, snapshot_id`) instead of a sum.
 
-- **Intentionally Repeated Metrics**: Player-island level donations (e.g., `donations_total`) and island metadata (e.g., `wonder_level`, `wonder_belief`, mine levels) are repeated across all cities owned by a player on the same island.
-- **Rationale**: Denormalization simplifies downstream analysis by keeping related city, player, and island contexts in a single, extensive snapshot dataset, eliminating the need for complex multi-table joins.
-- **Aggregation Rules**:
-  - When aggregating city-level columns (e.g., population, resource levels) to player or island level, use standard sums (`SUM`).
-  - When aggregating player-island level columns (e.g., player donations) to the player level, use the maximum (`MAX`) across the cities on that island to avoid double-counting.
-
-> [!NOTE]
-> **Note on Data Duplication**:
-> Duplication in this dataset is **intentional** to make analysis easier. Users of the dataset should keep this in mind when querying: always aggregate player-island level metrics using `MAX` rather than `SUM` when rolling up to the player or server levels.
+Donations are not in `city_snapshot`: the game records them per player and island, not per city. They are in `donation_analytics_player_island_snapshot`, with one row per player, island and snapshot.
 
 ## Donation Totals
 
@@ -110,9 +102,9 @@ The running total stays in the data after the player's city has left the island
 
 - `player_snapshot` counts every island, including islands where the player no
   longer has a city.
-- `city_snapshot`, `donation_analytics_player_island_snapshot` and
-  `island_snapshot` count only islands where the player has a city at that
-  snapshot, because there is no city row to attach the rest to.
+- `donation_analytics_player_island_snapshot` and `island_snapshot` count only
+  islands where the player has a city at that snapshot, because there is no
+  city row to attach the rest to.
 
 So a player's total in `player_snapshot` can be higher than the sum over their
 islands in the player-island tables. Across the current data the difference is
@@ -245,7 +237,7 @@ SELECT * FROM (
 ```
 
 ### 4. player_island_latest
-To reconstruct the player-island level latest states (summing population/buildings/resources across a player's cities on that island, and taking the maximum of their island-level donations):
+A player's cities on one island, summed, from each city's latest snapshot. The donations on that island are in the `donations` table.
 ```sql
 WITH latest_cities AS (
     SELECT * FROM (
@@ -269,12 +261,7 @@ SELECT
     SUM(resources_stored_total) AS resources_stored_total,
     SUM(estimated_resource_value_total) AS estimated_resource_value_total,
     SUM(building_levels_total) AS building_levels_total,
-    -- Aggregating player-island level donations using MAX to avoid double counting across cities
-    MAX(wonder_donations_total) AS wonder_donations_total,
-    MAX(sawmill_donations_total) AS sawmill_donations_total,
-    MAX(luxury_mine_donations_total) AS luxury_mine_donations_total,
-    MAX(donations_total) AS donations_total,
-    -- Island metadata remains consistent
+    -- Island columns are the same on every city of the island
     ANY_VALUE(wonder_type_id) AS wonder_type_id,
     ANY_VALUE(wonder_level) AS wonder_level,
     ANY_VALUE(luxury_resource_type) AS luxury_resource_type,
@@ -302,7 +289,7 @@ GROUP BY country_code, server, player_id;
 ```
 
 ### 6. player_island_summary
-Get the historical summary of a player's activity on an island. Since we track at the city level in `city_snapshot`, we group by `player_id` and `island_id`, and take the `MAX` of the player's total donations on that island.
+Get the historical summary of a player's presence on an island, from their cities in `city_snapshot`.
 ```sql
 SELECT 
     country_code,
@@ -312,8 +299,7 @@ SELECT
     COUNT(DISTINCT snapshot_id) AS snapshots_observed_count,
     MIN(snapshot_date) AS first_snapshot_date,
     MAX(snapshot_date) AS last_snapshot_date,
-    COUNT(DISTINCT city_id || '_' || snapshot_id) AS player_city_observation_count,
-    MAX(donations_total) AS max_donations_total
+    COUNT(DISTINCT city_id || '_' || snapshot_id) AS player_city_observation_count
 FROM city_snapshot
 GROUP BY country_code, server, player_id, island_id;
 ```

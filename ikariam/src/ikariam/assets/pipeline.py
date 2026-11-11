@@ -362,21 +362,15 @@ def city_snapshot(
     context: AssetExecutionContext,
     city_enriched: pl.DataFrame,
     city_construction: pl.DataFrame,
-    donation_enriched: pl.DataFrame,
     island_enriched: pl.DataFrame,
 ) -> pl.DataFrame:
-    """One row per (city, snapshot). Contains detailed city-level metrics
-    and corresponding player-island donations and island metadata.
+    """One row per (city, snapshot): city metrics plus the island's metadata.
 
-    NOTE ON NORMALIZATION:
-    This table is intentionally denormalized. Player-island level donations and island metadata
-    (e.g. wonder level) are duplicated across multiple cities owned by the same player on the same island.
-    This duplication is intentional for the sake of ease of downstream analysis (avoiding complex multi-table joins).
-    When aggregating player-island level columns (such as donations), use MAX instead of SUM to avoid double-counting.
+    The island columns repeat on every city of that island. Donations are not
+    here, because the game records them per player and island, not per city.
     """
     df = build_city_snapshot_table(
         attach_city_construction(city_enriched, city_construction),
-        donation_enriched,
         island_enriched,
     )
 

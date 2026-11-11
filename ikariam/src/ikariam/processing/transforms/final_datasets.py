@@ -109,13 +109,12 @@ def build_player_snapshot_table(
 
 def build_city_snapshot_table(
     city_enriched: pl.DataFrame,
-    donation_enriched: pl.DataFrame,
     island_enriched: pl.DataFrame,
 ) -> pl.DataFrame:
-    """One row per (city_id, snapshot_id).
+    """One row per (city_id, snapshot_id), joined with the island's metadata.
 
-    The natural grain of `city_enriched` — every week where a city existed.
-    Joined with the matching donation enrichment and island metadata.
+    Donations are not included: the game records them per player and island,
+    not per city. They are in donation_analytics_player_island_snapshot.
     """
     base = city_enriched.select(
         pl.col("id").alias("city_id"),
@@ -141,18 +140,6 @@ def build_city_snapshot_table(
         *RESOURCE_COLUMNS,
         pl.col("Geblev").alias("building_levels_total"),
     )
-
-    don = donation_enriched.select(
-        pl.col("avatar_id").alias("player_id"),
-        "island_id",
-        "snapshot_id",
-        pl.col("Don_Wonder_Ges").alias("wonder_donations_total"),
-        pl.col("Don_Saegewerk_Ges").alias("sawmill_donations_total"),
-        pl.col("Don_Luxusminen_Ges").alias("luxury_mine_donations_total"),
-        pl.col("Don_Ges").alias("donations_total"),
-    )
-
-    base = base.join(don, on=["player_id", "island_id", "snapshot_id"], how="left")
 
     isl = island_enriched.select(
         pl.col("id").alias("island_id"),

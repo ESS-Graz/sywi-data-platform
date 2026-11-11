@@ -246,10 +246,6 @@ CITY_SNAPSHOT_DOCS: dict[str, dict[str, str]] = {
     **_estimated_resource_value_docs("in this city"),
     **_construction_docs("in this city"),
     "building_levels_total": {"description": "Sum of all building levels in this city, including the town hall", "unit": "sum_levels"},
-    "wonder_donations_total": {"description": f"Wonder donations {_PLAYER_ISLAND_DONATION_SCOPE} (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
-    "sawmill_donations_total": {"description": f"Sawmill donations {_PLAYER_ISLAND_DONATION_SCOPE} (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
-    "luxury_mine_donations_total": {"description": f"Luxury mine donations {_PLAYER_ISLAND_DONATION_SCOPE} (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
-    "donations_total": {"description": f"All donations {_PLAYER_ISLAND_DONATION_SCOPE} (intentionally duplicated across cities owned by the same player on this island)", "unit": "gold"},
     "wonder_type_id": {"description": "Wonder type id on this island (intentionally duplicated across cities on this island)", "unit": "enum"},
     "wonder_level": {"description": "Wonder level (intentionally duplicated across cities on this island)", "unit": "level"},
     "wonder_belief": {"description": "Wonder belief points (intentionally duplicated across cities on this island)", "unit": "points"},
@@ -581,7 +577,7 @@ TABLE_DESCRIPTIONS: dict[str, str] = {
         "One row per (player, snapshot). Aggregates each player's city and donation state for a weekly snapshot."
     ),
     "city_snapshot": (
-        "One row per (city, snapshot). Contains detailed city-level metrics and corresponding player-island donations and island metadata. Note: duplication of player-island level donations and island metadata is intentional for the sake of ease of downstream analysis (avoiding complex multi-table joins)."
+        "One row per (city, snapshot): city metrics plus the metadata of the island the city is on, which repeats on every city of that island. Donations are not here, because the game records them per player and island, not per city: see donation_analytics_player_island_snapshot."
     ),
     "island_snapshot": (
         "One row per (island, snapshot). Includes island state, upgrade metrics, and player/city/donation aggregates."
